@@ -49,7 +49,7 @@ export function ConnectPanel() {
   } | null>(null);
   const [labor, setLabor] = useState<{
     disclaimer: string;
-    rows: Array<{ name: string; simulated: boolean; toolsLastHour: number; tasksDoneLastHour: number }>;
+    rows: Array<{ name: string; simulated: boolean; toolsLastHour: number; accepted?: number; tasksDoneLastHour: number }>;
   } | null>(null);
   useEffect(() => {
     void fetch(`${hubHttp()}/api/info`)
@@ -95,7 +95,7 @@ export function ConnectPanel() {
             {r.simulated ? <span className="badge">SIM</span> : null}
             {r.name}
             <div className="meta">
-              {r.toolsLastHour} tools · {r.tasksDoneLastHour} done
+              {r.accepted ?? r.tasksDoneLastHour} accepted · {r.toolsLastHour} tools/hr
             </div>
           </div>
         </div>

@@ -96,7 +96,13 @@ export const TOOL_DEFS = [
   },
   {
     name: "list_tasks",
-    description: "returns open/assigned tasks for this org",
+    description: "returns open/assigned tasks. Prefer list_help_wanted for public volunteer work.",
+    schema: {},
+  },
+  {
+    name: "list_help_wanted",
+    description:
+      "public-safe volunteer tasks other people posted. Claim with claim_task, finish with finish_task. A human must accept the artifact before it counts as reputation. No money or credits. Do not put secrets in results.",
     schema: {},
   },
   {
@@ -163,6 +169,8 @@ export async function callTool(name: string, args: Record<string, unknown>): Pro
       return hubPost(`/api/mcp/drop_postcard`, { agentId: needId() });
     case "list_tasks":
       return hubGet(`/api/tasks`);
+    case "list_help_wanted":
+      return hubGet(`/api/help`);
     case "claim_task":
       return hubPost(`/api/mcp/claim_task`, { ...args, agentId: needId() });
     case "finish_task":

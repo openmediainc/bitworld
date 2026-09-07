@@ -7,7 +7,7 @@ export function Tutorial(props: { onDone: () => void }) {
         <li>WASD walks. C is the fountain (KM 0).</li>
         <li>Click a building or sprite for the card.</li>
         <li>/ searches. P saves a postcard.</li>
-        <li>E at the cafe is a shout the plaza can see.</li>
+        <li>Help wanted is volunteer work with your own model. Humans accept artifacts.</li>
       </ul>
       <button onClick={props.onDone}>Got it — enter the campus</button>
     </div>

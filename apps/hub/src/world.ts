@@ -3,6 +3,8 @@ import {
   AVENUE_KM0,
   AVENUE_REFUSE,
   BUBBLE_MS,
+  HELP_WANTED_DISCLAIMER,
+  LABOR_DISCLAIMER,
   FOUNTAIN,
   HEARTBEAT_TIMEOUT_MS,
   MAX_AGENTS,
@@ -225,12 +227,7 @@ export class World {
       if (!e.agentId) continue;
       tools.set(e.agentId, (tools.get(e.agentId) ?? 0) + 1);
     }
-    const done = new Map<string, number>();
-    for (const t of this.tasks) {
-      if (t.status !== "done" || t.createdAt < since) continue;
-      if (!t.agentId) continue;
-      done.set(t.agentId, (done.get(t.agentId) ?? 0) + 1);
-    }
+    const accepted = this.acceptedCounts();
     const rows = [...this.agents.values()]
       .filter((a) => a.sprite !== "visitor")
       .map((a) => ({
@@ -238,11 +235,55 @@ export class World {
         name: a.name,
         simulated: a.simulated,
         toolsLastHour: tools.get(a.id) ?? 0,
-        tasksDoneLastHour: done.get(a.id) ?? 0,
-        score: (tools.get(a.id) ?? 0) + (done.get(a.id) ?? 0) * 2,
+        accepted: accepted.get(a.id) ?? 0,
+        tasksDoneLastHour: 0,
+        score: accepted.get(a.id) ?? 0,
       }))
-      .sort((a, b) => b.score - a.score);
-    return { disclaimer: "Ranking is not endorsement. Being connected does not exempt you from campus rules.", rows };
+      .sort((a, b) => b.score - a.score || b.toolsLastHour - a.toolsLastHour);
+    return { disclaimer: LABOR_DISCLAIMER, rows };
+  }
+
+  acceptedCounts(): Map<string, number> {
+    const counts = new Map<string, number>();
+    for (const t of this.tasks) {
+      if (t.kind === "artifact") continue;
+      if (!t.accepted || !t.agentId) continue;
+      counts.set(t.agentId, (counts.get(t.agentId) ?? 0) + 1);
+    }
+    return counts;
+  }
+
+  reputation() {
+    const counts = this.acceptedCounts();
+    const rows = [...counts.entries()]
+      .map(([id, accepted]) => {
+        const agent = this.agents.get(id);
+        return {
+          id,
+          name: agent?.name ?? id,
+          simulated: agent?.simulated ?? false,
+          accepted,
+        };
+      })
+      .sort((a, b) => b.accepted - a.accepted);
+    return { disclaimer: LABOR_DISCLAIMER, rows };
+  }
+
+  helpWantedBoard() {
+    const open = this.tasks.filter(
+      (t) => t.helpWanted && t.kind !== "artifact" && (t.status === "open" || t.status === "assigned" || t.status === "doing"),
+    );
+    const review = this.tasks.filter(
+      (t) => t.helpWanted && t.kind !== "artifact" && t.status === "done" && !t.accepted,
+    );
+    const missions = this.missions.filter((m) => m.helpWanted && m.status !== "completed");
+    return {
+      disclaimer: HELP_WANTED_DISCLAIMER,
+      missions,
+      tasks: open,
+      review,
+      reputation: this.reputation().rows,
+    };
   }
 
   dashboard() {
@@ -261,7 +302,7 @@ export class World {
     return {
       agents,
       tasks: this.tasks.filter((t) => t.status === "open" || t.status === "assigned" || t.status === "doing"),
-      disclaimer: "These are credits-of-work (heartbeats and tasks), not a wallet.",
+      disclaimer: LABOR_DISCLAIMER,
     };
   }
 
@@ -661,7 +702,7 @@ export class World {
     return a;
   }
 
-  dropArtifact(id: string, title: string, body: string, missionId?: string): Agent {
+  dropArtifact(id: string, title: string, body: string, missionId?: string, helpWanted?: boolean): Agent {
     const a = this.require(id);
     const activeMissionId =
       missionId ??
@@ -670,6 +711,8 @@ export class World {
           mission.participantIds.includes(id) &&
           (mission.status === "active" || mission.status === "blocked"),
       )?.id;
+    const mission = activeMissionId ? this.missions.find((item) => item.id === activeMissionId) : undefined;
+    const contribute = helpWanted ?? mission?.helpWanted ?? false;
     const mail = stationByKind(this.stations, "mailbox");
     if (mail) this.goTo(id, { tile: { ...mail.tile }, stationId: mail.id });
     const task: Task = {
@@ -682,6 +725,8 @@ export class World {
       body,
       status: "done",
       createdAt: Date.now(),
+      helpWanted: contribute || undefined,
+      accepted: contribute ? false : true,
     };
     this.tasks.push(task);
     this.dirtyTasks = true;
@@ -695,10 +740,22 @@ export class World {
   }
 
   listTasks(): Task[] {
-    return this.tasks.filter((t) => t.status === "open" || t.status === "assigned");
+    return this.tasks.filter((t) => t.kind !== "artifact" && (t.status === "open" || t.status === "assigned"));
   }
 
-  createMission(body: { title: string; outcome: string; participantId?: string; orgId?: string }): Mission {
+  listHelpWanted(): Task[] {
+    return this.tasks.filter(
+      (t) => t.helpWanted && t.kind !== "artifact" && (t.status === "open" || t.status === "assigned"),
+    );
+  }
+
+  createMission(body: {
+    title: string;
+    outcome: string;
+    participantId?: string;
+    orgId?: string;
+    helpWanted?: boolean;
+  }): Mission {
     const mission: Mission = {
       id: nanoid(10),
       orgId: body.orgId ?? this.org.id,
@@ -707,6 +764,7 @@ export class World {
       status: "active",
       participantIds: body.participantId ? [body.participantId] : [],
       createdAt: Date.now(),
+      helpWanted: body.helpWanted || undefined,
     };
     this.missions.push(mission);
     this.dirtyMissions = true;
@@ -759,8 +817,10 @@ export class World {
     agentId?: string;
     missionId?: string;
     orgId?: string;
+    helpWanted?: boolean;
   }): Task {
-    if (body.missionId) this.requireMission(body.missionId);
+    const mission = body.missionId ? this.requireMission(body.missionId) : undefined;
+    const helpWanted = body.helpWanted ?? mission?.helpWanted;
     const task: Task = {
       id: nanoid(10),
       orgId: body.orgId ?? this.org.id,
@@ -771,6 +831,7 @@ export class World {
       body: body.body,
       status: body.agentId ? "assigned" : "open",
       createdAt: Date.now(),
+      helpWanted: helpWanted || undefined,
     };
     this.tasks.push(task);
     this.dirtyTasks = true;
@@ -786,8 +847,18 @@ export class World {
 
   claimTask(agentId: string, taskId: string): Task {
     const a = this.require(agentId);
+    if (a.sprite === "visitor") {
+      throw Object.assign(new Error("humans join missions; agents claim tasks"), { statusCode: 400 });
+    }
     const task = this.tasks.find((t) => t.id === taskId);
     if (!task) throw Object.assign(new Error("task not found"), { statusCode: 404 });
+    if (task.kind === "artifact") throw Object.assign(new Error("cannot claim an artifact"), { statusCode: 400 });
+    if (task.status === "done" || task.status === "failed") {
+      throw Object.assign(new Error("task is closed"), { statusCode: 409 });
+    }
+    if (task.agentId && task.agentId !== agentId && (task.status === "doing" || task.status === "assigned")) {
+      throw Object.assign(new Error("another agent already claimed this task"), { statusCode: 409 });
+    }
     task.agentId = agentId;
     task.status = "doing";
     this.dirtyTasks = true;
@@ -807,15 +878,82 @@ export class World {
     const a = this.require(agentId);
     const task = this.tasks.find((t) => t.id === taskId);
     if (!task) throw Object.assign(new Error("task not found"), { statusCode: 404 });
+    if (task.agentId && task.agentId !== agentId) {
+      throw Object.assign(new Error("only the claiming agent can finish this task"), { statusCode: 403 });
+    }
     task.status = "done";
     task.body = `${task.body}\n\n${result}`.trim();
+    task.accepted = task.helpWanted ? false : true;
+    if (task.accepted) {
+      task.acceptedAt = Date.now();
+    }
     this.dirtyTasks = true;
-    this.dropArtifact(agentId, task.title, result, task.missionId);
+    this.dropArtifact(agentId, task.title, result, task.missionId, task.helpWanted);
     this.pushEvent({
       kind: "task",
       agentId,
-      text: `${a.name} finished ${task.title}`,
+      text: task.helpWanted
+        ? `${a.name} submitted ${task.title} for review`
+        : `${a.name} finished ${task.title}`,
       data: task.missionId ? { missionId: task.missionId, taskId: task.id } : { taskId: task.id },
+    });
+    return task;
+  }
+
+  private requireHuman(participantId: string): Agent {
+    const actor = this.agents.get(participantId);
+    if (!actor || actor.sprite !== "visitor") {
+      throw Object.assign(new Error("only a human on campus can accept or reject work"), { statusCode: 403 });
+    }
+    return actor;
+  }
+
+  acceptTask(taskId: string, participantId: string): Task {
+    const actor = this.requireHuman(participantId);
+    const task = this.tasks.find((t) => t.id === taskId);
+    if (!task) throw Object.assign(new Error("task not found"), { statusCode: 404 });
+    if (task.status !== "done") throw Object.assign(new Error("task is not awaiting review"), { statusCode: 409 });
+    if (task.missionId) this.joinMission(task.missionId, participantId);
+    const now = Date.now();
+    task.accepted = true;
+    task.acceptedBy = participantId;
+    task.acceptedAt = now;
+    for (const item of this.tasks) {
+      if (item.kind !== "artifact") continue;
+      if (item.agentId !== task.agentId) continue;
+      if (item.title !== task.title) continue;
+      if ((item.missionId ?? "") !== (task.missionId ?? "")) continue;
+      item.accepted = true;
+      item.acceptedBy = participantId;
+      item.acceptedAt = now;
+    }
+    this.dirtyTasks = true;
+    this.pushEvent({
+      kind: "task",
+      agentId: task.agentId,
+      text: `${actor.name} accepted ${task.title}`,
+      data: { missionId: task.missionId, taskId: task.id, accepted: true },
+    });
+    return task;
+  }
+
+  rejectTask(taskId: string, participantId: string, reason?: string): Task {
+    const actor = this.requireHuman(participantId);
+    const task = this.tasks.find((t) => t.id === taskId);
+    if (!task) throw Object.assign(new Error("task not found"), { statusCode: 404 });
+    if (task.status !== "done" && task.status !== "doing") {
+      throw Object.assign(new Error("task is not in review"), { statusCode: 409 });
+    }
+    if (task.missionId) this.joinMission(task.missionId, participantId);
+    task.status = "failed";
+    task.accepted = false;
+    if (reason) task.body = `${task.body}\n\nrejected: ${reason}`.trim();
+    this.dirtyTasks = true;
+    this.pushEvent({
+      kind: "task",
+      agentId: task.agentId,
+      text: `${actor.name} rejected ${task.title}${reason ? `: ${reason}` : ""}`,
+      data: { missionId: task.missionId, taskId: task.id, accepted: false },
     });
     return task;
   }

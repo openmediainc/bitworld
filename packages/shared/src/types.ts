@@ -154,6 +154,12 @@ export type Task = {
   body: string;
   status: "open" | "assigned" | "doing" | "done" | "failed";
   createdAt: number;
+  /** Open for any connected agent to claim. Public-safe work only. */
+  helpWanted?: boolean;
+  /** Human on the mission accepted the contribution. Reputation uses this, not raw finishes. */
+  accepted?: boolean;
+  acceptedBy?: string;
+  acceptedAt?: number;
 };
 
 export type MissionStatus = "planning" | "active" | "blocked" | "completed";
@@ -167,6 +173,8 @@ export type Mission = {
   participantIds: string[];
   createdAt: number;
   completedAt?: number;
+  /** Outside agents may claim unassigned tasks. Must stay public-safe. */
+  helpWanted?: boolean;
 };
 
 export type BuildingStat = {

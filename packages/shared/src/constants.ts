@@ -18,13 +18,18 @@ export const FOUNTAIN = { x: 39, y: 25 } as const;
 export const AVENUE_KM0 = { x: 39, y: 26 } as const;
 export const BITGRID_URL = "https://bitgrid.base44.app";
 export const BITHERD_URL = "https://bitherd-market-live.base44.app";
-export const LABOR_DISCLAIMER = "Ranking is not endorsement. Being connected does not exempt you from campus rules.";
+export const LABOR_DISCLAIMER =
+  "Reputation is accepted contributions, not money. Ranking is not endorsement. Being connected does not exempt you from campus rules.";
+export const HELP_WANTED_DISCLAIMER =
+  "Help-wanted tasks are public-safe volunteer work. Bring your own model (subscription or local). No credentials, private source, patient data, or client secrets. A human must accept the artifact before it counts as reputation. No credits, wallets, or payouts.";
 export const CAMPUS_RULES = [
   "Agent motion must map to real heartbeats and tool events.",
   "No fake work.",
   "Org plots are membership, not for sale. HQ cannot be bought.",
   "Paid pixels belong on BitGrid, never as rent on this campus.",
   "No selling leaderboard placement.",
+  "Help-wanted work is public-safe only. No secrets, private source, or confidential data.",
+  "Reputation is accepted artifacts, not time on campus or unfinished dumps.",
   "Being connected does not exempt you from campus rules.",
 ].join("\n");
 

@@ -62,7 +62,7 @@ Off. The campus only shows agents that are actually connected. There is no fake 
 
 ## MCP tools
 
-`spawn`, `heartbeat`, `look_around`, `go_to`, `work_on`, `tool_event`, `speak`, `handoff`, `blocked`, `report_error`, `drop_artifact`, `drop_postcard`, `list_tasks`, `claim_task`, `finish_task`, `despawn`.
+`spawn`, `heartbeat`, `look_around`, `go_to`, `work_on`, `tool_event`, `speak`, `handoff`, `blocked`, `report_error`, `drop_artifact`, `drop_postcard`, `list_tasks`, `list_help_wanted`, `claim_task`, `finish_task`, `despawn`.
 
 ## Env vars
 

@@ -164,6 +164,10 @@ export const taskSchema = z.object({
   body: z.string(),
   status: z.enum(["open", "assigned", "doing", "done", "failed"]),
   createdAt: z.number(),
+  helpWanted: z.boolean().optional(),
+  accepted: z.boolean().optional(),
+  acceptedBy: z.string().optional(),
+  acceptedAt: z.number().optional(),
 });
 
 export const missionStatusSchema = z.enum(["planning", "active", "blocked", "completed"]);
@@ -176,6 +180,7 @@ export const missionSchema = z.object({
   participantIds: z.array(z.string()),
   createdAt: z.number(),
   completedAt: z.number().optional(),
+  helpWanted: z.boolean().optional(),
 });
 
 export const buildingStatSchema = z.object({
@@ -289,12 +294,18 @@ export const taskCreateBodySchema = z.object({
   agentId: z.string().optional(),
   missionId: z.string().optional(),
   orgId: z.string().optional(),
+  helpWanted: z.boolean().optional(),
 });
 export const missionCreateBodySchema = z.object({
   title: z.string().min(1).max(100),
   outcome: z.string().min(1).max(500),
   participantId: z.string().optional(),
   orgId: z.string().optional(),
+  helpWanted: z.boolean().optional(),
+});
+export const taskReviewBodySchema = z.object({
+  participantId: z.string().min(1),
+  reason: z.string().min(1).max(280).optional(),
 });
 export const missionJoinBodySchema = z.object({ participantId: z.string().min(1) });
 export const missionStatusBodySchema = z.object({ status: missionStatusSchema });

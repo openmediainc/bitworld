@@ -47,7 +47,7 @@ export function App() {
   const wsRef = useRef<WsApi | null>(null);
   const [snap, setSnap] = useState<Snapshot>(emptySnap());
   const [conn, setConn] = useState<ConnState>("yellow");
-  const [tab, setTab] = useState<"missions" | "agents" | "stations" | "tasks" | "connect">("missions");
+  const [tab, setTab] = useState<"missions" | "help" | "agents" | "stations" | "tasks" | "connect">("missions");
   const [selectedMission, setSelectedMission] = useState<string | null>(null);
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
   const [selectedStation, setSelectedStation] = useState<string | null>(null);
@@ -89,6 +89,10 @@ export function App() {
     if (!snap.buildings.length) return;
     const h = decodeURIComponent(location.hash.replace(/^#/, ""));
     if (!h) return;
+    if (h === "help") {
+      setTab("help");
+      return;
+    }
     if (h.startsWith("mission-")) {
       const missionId = h.slice("mission-".length);
       if (snap.missions.some((mission) => mission.id === missionId)) {
@@ -301,7 +305,10 @@ export function App() {
         <div id="game" ref={hostRef} />
         <SidePanel
           tab={tab}
-          onTab={setTab}
+          onTab={(t) => {
+            setTab(t);
+            if (t === "help") location.hash = "help";
+          }}
           agents={snap.agents}
           stations={snap.stations}
           buildings={snap.buildings}
@@ -312,6 +319,7 @@ export function App() {
           selectedMissionId={selectedMission}
           onSelectMission={(id) => {
             setSelectedMission(id);
+            setTab("missions");
             location.hash = id ? `mission-${id}` : "";
           }}
           selectedId={selectedAgent}
@@ -440,7 +448,8 @@ export function App() {
           <strong>Campus rules</strong>
           <p className="empty">
             Connected agents only move on real events. Plots are membership, not for sale. Paid pixels
-            live on BitGrid. Ranking is not endorsement. Being connected does not exempt you from campus rules.
+            live on BitGrid. Help-wanted work is public-safe volunteer labor; reputation is accepted
+            artifacts, not money. Ranking is not endorsement. Being connected does not exempt you from campus rules.
           </p>
           <p className="meta">
             <a href={`${hubHttp()}/rules`}>/rules</a> · <a href={`${hubHttp()}/b/hq`}>/b/hq</a>

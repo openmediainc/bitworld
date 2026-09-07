@@ -66,7 +66,9 @@ export function MissionPanel(props: {
             const done = itemTasks.filter((task) => task.status === "done").length;
             return (
               <button className="mission-card" key={item.id} onClick={() => props.onSelect(item.id)}>
-                <span className={`mission-status ${item.status}`}>{item.status}</span>
+                <span className={`mission-status ${item.helpWanted ? "active" : item.status}`}>
+                  {item.helpWanted ? "help" : item.status}
+                </span>
                 <strong>{item.title}</strong>
                 <span className="meta">
                   {done}/{itemTasks.length} tasks · {item.participantIds.length} squad
@@ -95,6 +97,7 @@ export function MissionPanel(props: {
         </button>
       </div>
       <span className={`mission-status ${mission.status}`}>{mission.status}</span>
+      {mission.helpWanted && <span className="mission-status active">open to outside agents</span>}
       <h3>{mission.title}</h3>
       <p className="mission-outcome">{mission.outcome}</p>
       <div className="mission-progress">
@@ -145,6 +148,7 @@ export function MissionPanel(props: {
         {addingTask && (
           <MissionTaskForm
             missionId={mission.id}
+            helpWanted={Boolean(mission.helpWanted)}
             agents={props.agents}
             onDone={() => setAddingTask(false)}
           />
@@ -157,9 +161,32 @@ export function MissionPanel(props: {
             <div>
               {task.title}
               <div className="meta">
+                {task.helpWanted ? "help wanted · " : ""}
                 {task.status}
+                {task.accepted ? " · accepted" : task.status === "done" && task.helpWanted ? " · needs review" : ""}
                 {task.agentId ? ` · ${participantName(task.agentId)}` : " · unassigned"}
               </div>
+              {joined && task.helpWanted && task.status === "done" && !task.accepted && props.visitorId && (
+                <div className="mission-actions">
+                  <button
+                    onClick={() =>
+                      void postJson(`/api/tasks/${task.id}/accept`, { participantId: props.visitorId })
+                    }
+                  >
+                    Accept
+                  </button>
+                  <button
+                    onClick={() =>
+                      void postJson(`/api/tasks/${task.id}/reject`, {
+                        participantId: props.visitorId,
+                        reason: "needs another pass",
+                      })
+                    }
+                  >
+                    Reject
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         ))}
@@ -193,14 +220,18 @@ function MissionForm(props: {
 }) {
   const [title, setTitle] = useState("");
   const [outcome, setOutcome] = useState("");
+  const [helpWanted, setHelpWanted] = useState(false);
   return (
     <form
       className="mission-form"
       onSubmit={(event) => {
         event.preventDefault();
-        void postJson("/api/missions", { title, outcome, participantId: props.visitorId }).then((result) =>
-          props.onCreated(result as Mission),
-        );
+        void postJson("/api/missions", {
+          title,
+          outcome,
+          participantId: props.visitorId,
+          helpWanted,
+        }).then((result) => props.onCreated(result as Mission));
       }}
     >
       <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Mission title" required />
@@ -210,6 +241,10 @@ function MissionForm(props: {
         placeholder="What observable outcome means this mission is done?"
         required
       />
+      <label className="meta">
+        <input type="checkbox" checked={helpWanted} onChange={(event) => setHelpWanted(event.target.checked)} /> Open
+        to outside agents (public-safe only — no secrets)
+      </label>
       <div>
         <button type="submit">Start mission</button>
         <button type="button" onClick={props.onCancel}>Cancel</button>
@@ -218,10 +253,16 @@ function MissionForm(props: {
   );
 }
 
-function MissionTaskForm(props: { missionId: string; agents: Agent[]; onDone: () => void }) {
+function MissionTaskForm(props: {
+  missionId: string;
+  helpWanted?: boolean;
+  agents: Agent[];
+  onDone: () => void;
+}) {
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [agentId, setAgentId] = useState("");
+  const [helpWanted, setHelpWanted] = useState(Boolean(props.helpWanted));
   return (
     <form
       className="mission-form"
@@ -232,6 +273,7 @@ function MissionTaskForm(props: { missionId: string; agents: Agent[]; onDone: ()
           body,
           missionId: props.missionId,
           agentId: agentId || undefined,
+          helpWanted,
         }).then(props.onDone);
       }}
     >
@@ -243,6 +285,10 @@ function MissionTaskForm(props: { missionId: string; agents: Agent[]; onDone: ()
           <option key={agent.id} value={agent.id}>{agent.name}</option>
         ))}
       </select>
+      <label className="meta">
+        <input type="checkbox" checked={helpWanted} onChange={(event) => setHelpWanted(event.target.checked)} /> Help
+        wanted (outside agents may claim)
+      </label>
       <div>
         <button type="submit">Add task</button>
         <button type="button" onClick={props.onDone}>Cancel</button>

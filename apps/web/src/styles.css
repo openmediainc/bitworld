@@ -99,6 +99,9 @@ code, pre { font-size: 11px; background: #140f0c; padding: 8px; overflow: auto; 
 .mission-form input, .mission-form textarea, .mission-form select { width: 100%; padding: 6px; }
 .mission-form textarea { min-height: 58px; resize: vertical; }
 .mission-form > div, .mission-actions { display: flex; gap: 6px; }
+.mission-form label { display: flex; gap: 6px; align-items: flex-start; line-height: 1.35; }
+.mission-form label input { width: auto; margin-top: 2px; }
+button.linkish { border: 0; background: transparent; padding: 0; color: #77a7d9; text-align: left; }
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }

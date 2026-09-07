@@ -17,6 +17,7 @@ import {
   spawnBodySchema,
   shardBodySchema,
   taskCreateBodySchema,
+  taskReviewBodySchema,
   toolEventBodySchema,
   visitorMoveBodySchema,
   visitorSayBodySchema,
@@ -157,6 +158,30 @@ export function registerHttp(app: FastifyInstance, world: World, owners: OwnerSt
     );
   });
   app.get("/api/labor", async () => world.laborBoard());
+  app.get("/api/help", async () => world.helpWantedBoard());
+  app.get("/api/reputation", async () => world.reputation());
+  app.get("/help", async (_req, reply) => {
+    const board = world.helpWantedBoard();
+    const tasks = board.tasks
+      .map((t) => `<li><code>${t.id}</code> ${t.title} · ${t.status}${t.agentId ? ` · ${t.agentId}` : " · unclaimed"}</li>`)
+      .join("");
+    const reps = board.reputation
+      .slice(0, 12)
+      .map((r) => `<li>${r.name}: ${r.accepted} accepted</li>`)
+      .join("");
+    reply.type("text/html").send(
+      page(
+        "Help wanted",
+        `<h1>Help wanted</h1>
+         <p class="meta">${board.disclaimer}</p>
+         <p>Agents: <code>list_help_wanted</code> then <code>claim_task</code>. Humans accept artifacts on campus.</p>
+         <h2>Open work</h2>
+         <ul>${tasks || "<li>None right now.</li>"}</ul>
+         <h2>Accepted reputation</h2>
+         <ul>${reps || "<li>Nobody has an accepted contribution yet.</li>"}</ul>`,
+      ),
+    );
+  });
   app.get("/api/dashboard", async () => world.dashboard());
   app.post("/api/report", async (req, reply) => {
     const body = await parse(reportBodySchema, req, reply);
@@ -218,6 +243,30 @@ export function registerHttp(app: FastifyInstance, world: World, owners: OwnerSt
     const body = await parse(taskCreateBodySchema, req, reply);
     if (!body) return;
     return world.createTask({ ...body, body: body.body ?? "" });
+  });
+
+  app.post("/api/tasks/:id/accept", async (req, reply) => {
+    const body = await parse(taskReviewBodySchema, req, reply);
+    if (!body) return;
+    const { id } = req.params as { id: string };
+    try {
+      return world.acceptTask(id, body.participantId);
+    } catch (e) {
+      const err = e as Error & { statusCode?: number };
+      return reply.code(err.statusCode ?? 500).send({ error: err.message });
+    }
+  });
+
+  app.post("/api/tasks/:id/reject", async (req, reply) => {
+    const body = await parse(taskReviewBodySchema, req, reply);
+    if (!body) return;
+    const { id } = req.params as { id: string };
+    try {
+      return world.rejectTask(id, body.participantId, body.reason);
+    } catch (e) {
+      const err = e as Error & { statusCode?: number };
+      return reply.code(err.statusCode ?? 500).send({ error: err.message });
+    }
   });
 
   app.post("/api/missions", async (req, reply) => {
@@ -374,7 +423,7 @@ export function registerHttp(app: FastifyInstance, world: World, owners: OwnerSt
 
   // spawn is how you join and list_tasks is public reading; everything else
   // acts as a specific agent and needs that agent's token.
-  const OPEN_TOOLS = new Set(["spawn", "list_tasks"]);
+  const OPEN_TOOLS = new Set(["spawn", "list_tasks", "list_help_wanted"]);
 
   const mcp = async (tool: string, req: FastifyRequest, reply: FastifyReply) => {
     const id = agentIdFrom(req);
@@ -432,6 +481,8 @@ export function registerHttp(app: FastifyInstance, world: World, owners: OwnerSt
           return world.dropPostcard(id);
         case "list_tasks":
           return world.listTasks();
+        case "list_help_wanted":
+          return world.helpWantedBoard();
         case "claim_task": {
           return world.claimTask(id, claimTaskBodySchema.parse(req.body ?? {}).taskId);
         }

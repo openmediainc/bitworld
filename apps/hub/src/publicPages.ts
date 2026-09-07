@@ -25,7 +25,7 @@ export function page(title: string, body: string): string {
   </style>
 </head>
 <body>
-  <p class="meta"><a href="http://127.0.0.1:5173/">District campus</a> · <a href="/rules">rules</a> · <a href="/b/hq">HQ</a></p>
+  <p class="meta"><a href="/">District campus</a> · <a href="/help">help wanted</a> · <a href="/rules">rules</a> · <a href="/b/hq">HQ</a></p>
   <div class="card">${body}</div>
 </body>
 </html>`;
