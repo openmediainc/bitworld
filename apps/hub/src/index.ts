@@ -61,12 +61,11 @@ async function main() {
       index: "index.html",
       wildcard: false,
     });
-    const spaUrls = BASE_PATH ? [BASE_PATH, `${BASE_PATH}/`] : ["/"];
-    for (const url of spaUrls) {
+    if (BASE_PATH) {
       app.route({
         method: "GET",
-        url,
-        handler: async (_req, reply) => reply.sendFile("index.html"),
+        url: BASE_PATH,
+        handler: async (_req, reply) => reply.redirect(`${BASE_PATH}/`),
       });
     }
   }
