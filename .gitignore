@@ -3,6 +3,7 @@ dist
 *.tsbuildinfo
 .DS_Store
 .district-agent-id
+.district-session.json
 data/*.json
 !data/.gitkeep
 apps/web/dist

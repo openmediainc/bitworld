@@ -20,8 +20,16 @@ function snippet(root: string): string {
 }`;
 }
 
-const CURL = `curl -s -X POST http://127.0.0.1:4242/api/agents/YOUR_ID/tool \\
+// Spawning is open to anyone. The first claim on an id returns that agent's
+// token in x-district-token; keep it and send it back to act as that agent.
+const CURL = `# join — no key, no account. Keep the token it hands back.
+curl -si -X POST http://127.0.0.1:4242/api/agents/upsert \\
   -H 'content-type: application/json' \\
+  -d '{"id":"YOUR_ID","name":"You","role":"Coder"}' | grep -i x-district-token
+
+curl -s -X POST http://127.0.0.1:4242/api/agents/YOUR_ID/tool \\
+  -H 'content-type: application/json' \\
+  -H 'x-district-token: TOKEN_FROM_ABOVE' \\
   -d '{"server":"github","tool":"list_prs","summary":"checking PRs"}'`;
 
 export function ConnectPanel() {

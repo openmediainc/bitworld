@@ -1,5 +1,6 @@
 import type { Agent, AvenuePlot, Building, BuildingStat, Station, WorldEvent } from "@district/shared";
 import { postJson } from "../net/ws";
+import { owns } from "../net/token";
 
 export function Inspector(props: {
   agent?: Agent | null;
@@ -147,14 +148,15 @@ export function Inspector(props: {
         <button onClick={props.onAssign}>Assign task</button>
         <button
           onClick={() => {
-            void postJson(`/api/agents/${a.id}/speak`, { text: "ping" }).catch(() =>
-              postJson(`/api/mcp/heartbeat`, { agentId: a.id, bubble: "ping" }),
+            // The visitor calls out. Putting words in someone else's agent is not ours to do.
+            void postJson(`/api/visitor/say`, { text: `ping @${a.name}`.slice(0, 60) }).catch(
+              () => undefined,
             );
           }}
         >
           Ping
         </button>
-        {(a.simulated || !props.apiKeyRequired) && (
+        {(a.simulated || owns(a.id)) && (
           <button
             onClick={() => {
               void postJson(`/api/agents/${a.id}/despawn`, {});

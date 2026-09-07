@@ -23,6 +23,7 @@ import {
 } from "@district/shared";
 import type { World } from "./world.js";
 import { startSimulator, stopSimulator } from "./simulator.js";
+import { TOKEN_HEADER, type OwnerStore } from "./tokens.js";
 import { page, rulesPage } from "./publicPages.js";
 
 function issues(err: ZodError) {
@@ -48,8 +49,14 @@ function agentIdFrom(req: FastifyRequest, paramsId?: string): string {
   return body.agentId || body.id || (typeof header === "string" ? header : "") || "";
 }
 
-export function registerHttp(app: FastifyInstance, world: World): void {
+function tokenFrom(req: FastifyRequest): string {
+  const h = req.headers[TOKEN_HEADER];
+  return typeof h === "string" ? h : "";
+}
+
+export function registerHttp(app: FastifyInstance, world: World, owners: OwnerStore): void {
   const apiKey = process.env.API_KEY ?? "";
+  const adminKey = process.env.DISTRICT_ADMIN_KEY ?? "";
 
   app.addHook("preHandler", async (req, reply) => {
     if (!apiKey) return;
@@ -59,6 +66,42 @@ export function registerHttp(app: FastifyInstance, world: World): void {
       return reply.code(401).send({ error: "missing or bad x-api-key" });
     }
   });
+
+  /**
+   * Ownership, not authentication. Anyone may spawn; only the session holding
+   * an agent's token may act as it. An id nobody has claimed is claimed by its
+   * first writer (trust on first use) and the token comes back once in the
+   * x-district-token header — so joining needs no credential at all.
+   */
+  const own = (req: FastifyRequest, reply: FastifyReply, id: string): boolean => {
+    if (!id) {
+      reply.code(400).send({ error: "missing agent id" });
+      return false;
+    }
+    if (id === VISITOR_ID) return true;
+    if (owners.verify(id, tokenFrom(req))) return true;
+    const minted = owners.claim(id);
+    if (minted) {
+      reply.header(TOKEN_HEADER, minted);
+      return true;
+    }
+    reply.code(403).send({
+      error: "another session owns this agent; send its x-district-token header",
+    });
+    return false;
+  };
+
+  const admin = (req: FastifyRequest, reply: FastifyReply): boolean => {
+    if (!adminKey) {
+      reply.code(403).send({ error: "disabled; set DISTRICT_ADMIN_KEY on the hub to enable" });
+      return false;
+    }
+    if (req.headers["x-admin-key"] !== adminKey) {
+      reply.code(403).send({ error: "missing or bad x-admin-key" });
+      return false;
+    }
+    return true;
+  };
 
   app.get("/health", async () => ({
     ok: true,
@@ -167,8 +210,14 @@ export function registerHttp(app: FastifyInstance, world: World): void {
     return world.createTask({ ...body, body: body.body ?? "" });
   });
 
-  app.post("/api/sim/start", async () => startSimulator(world));
-  app.post("/api/sim/stop", async () => stopSimulator(world));
+  app.post("/api/sim/start", async (req, reply) => {
+    if (!admin(req, reply)) return;
+    return startSimulator(world);
+  });
+  app.post("/api/sim/stop", async (req, reply) => {
+    if (!admin(req, reply)) return;
+    return stopSimulator(world);
+  });
 
   app.post("/api/visitor/move", async (req, reply) => {
     const body = await parse(visitorMoveBodySchema, req, reply);
@@ -204,13 +253,18 @@ export function registerHttp(app: FastifyInstance, world: World): void {
   app.post("/api/agents/upsert", async (req, reply) => {
     const body = await parse(spawnBodySchema, req, reply);
     if (!body) return;
-    return world.upsertAgent(body);
+    if (body.id && !own(req, reply, body.id)) return;
+    const agent = world.upsertAgent(body);
+    const minted = owners.claim(agent.id);
+    if (minted) reply.header(TOKEN_HEADER, minted);
+    return agent;
   });
 
   app.post("/api/agents/:id/heartbeat", async (req, reply) => {
     const body = await parse(heartbeatBodySchema, req, reply);
     if (!body) return;
     const { id } = req.params as { id: string };
+    if (!own(req, reply, id)) return;
     return world.heartbeat(id, body);
   });
 
@@ -218,6 +272,7 @@ export function registerHttp(app: FastifyInstance, world: World): void {
     const body = await parse(goToBodySchema, req, reply);
     if (!body) return;
     const { id } = req.params as { id: string };
+    if (!own(req, reply, id)) return;
     const dest = world.resolveTarget(body);
     if (!dest) return reply.code(400).send({ error: "could not resolve destination" });
     return world.goTo(id, dest);
@@ -227,6 +282,7 @@ export function registerHttp(app: FastifyInstance, world: World): void {
     const body = await parse(workOnBodySchema, req, reply);
     if (!body) return;
     const { id } = req.params as { id: string };
+    if (!own(req, reply, id)) return;
     return world.workOn(id, body);
   });
 
@@ -234,6 +290,7 @@ export function registerHttp(app: FastifyInstance, world: World): void {
     const body = await parse(speakBodySchema, req, reply);
     if (!body) return;
     const { id } = req.params as { id: string };
+    if (!own(req, reply, id)) return;
     return world.speak(id, body.text, body.toAgentName);
   });
 
@@ -241,6 +298,7 @@ export function registerHttp(app: FastifyInstance, world: World): void {
     const body = await parse(handoffBodySchema, req, reply);
     if (!body) return;
     const { id } = req.params as { id: string };
+    if (!own(req, reply, id)) return;
     return world.handoff(id, body.toAgentName, body.note);
   });
 
@@ -248,6 +306,7 @@ export function registerHttp(app: FastifyInstance, world: World): void {
     const body = await parse(blockedBodySchema, req, reply);
     if (!body) return;
     const { id } = req.params as { id: string };
+    if (!own(req, reply, id)) return;
     return world.blocked(id, body.reason);
   });
 
@@ -255,6 +314,7 @@ export function registerHttp(app: FastifyInstance, world: World): void {
     const body = await parse(errorBodySchema, req, reply);
     if (!body) return;
     const { id } = req.params as { id: string };
+    if (!own(req, reply, id)) return;
     return world.reportError(id, body.message);
   });
 
@@ -262,12 +322,15 @@ export function registerHttp(app: FastifyInstance, world: World): void {
     const body = await parse(toolEventBodySchema, req, reply);
     if (!body) return;
     const { id } = req.params as { id: string };
+    if (!own(req, reply, id)) return;
     return world.toolEvent(id, body);
   });
 
-  app.post("/api/agents/:id/despawn", async (req) => {
+  app.post("/api/agents/:id/despawn", async (req, reply) => {
     const { id } = req.params as { id: string };
+    if (!own(req, reply, id)) return;
     world.despawn(id);
+    owners.release(id);
     return { ok: true };
   });
 
@@ -275,16 +338,26 @@ export function registerHttp(app: FastifyInstance, world: World): void {
     const body = await parse(shardBodySchema, req, reply);
     if (!body) return;
     const { id } = req.params as { id: string };
+    if (!own(req, reply, id)) return;
     return world.setShard(id, body.shard);
   });
+
+  // spawn is how you join and list_tasks is public reading; everything else
+  // acts as a specific agent and needs that agent's token.
+  const OPEN_TOOLS = new Set(["spawn", "list_tasks"]);
 
   const mcp = async (tool: string, req: FastifyRequest, reply: FastifyReply) => {
     const id = agentIdFrom(req);
     try {
+      if (!OPEN_TOOLS.has(tool) && !own(req, reply, id)) return;
       switch (tool) {
         case "spawn": {
           const body = spawnBodySchema.parse(req.body ?? {});
-          return world.upsertAgent(body);
+          if (body.id && !own(req, reply, body.id)) return;
+          const agent = world.upsertAgent(body);
+          const minted = owners.claim(agent.id);
+          if (minted) reply.header(TOKEN_HEADER, minted);
+          return agent;
         }
         case "heartbeat": {
           const body = heartbeatBodySchema.parse(req.body ?? {});
@@ -338,6 +411,7 @@ export function registerHttp(app: FastifyInstance, world: World): void {
         }
         case "despawn": {
           world.despawn(id);
+          owners.release(id);
           return { ok: true };
         }
         default:

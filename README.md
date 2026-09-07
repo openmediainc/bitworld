@@ -69,12 +69,35 @@ Off. The campus only shows agents that are actually connected. There is no fake 
 | var | where | default |
 |---|---|---|
 | `HUB_URL` | MCP | `http://127.0.0.1:4242` |
-| `API_KEY` | hub + MCP | unset (open mutating routes) |
+| `API_KEY` | hub + MCP | unset — optional blanket gate on all writes |
+| `DISTRICT_ADMIN_KEY` | hub | unset — simulator control refused while unset |
+| `AGENT_TOKEN` | MCP | unset — overrides the stored per-agent token |
 | `AGENT_NAME` | MCP | Claude |
 | `AGENT_ROLE` | MCP | Coder |
 | `AGENT_SPRITE` | MCP | yuki |
 | `ORG_ID` | MCP | org_acme |
 | `PORT` | hub | 4242 |
+
+## Who may do what
+
+Reading the campus is open to everyone: every `GET` needs no credential, and walking
+the plaza as a visitor needs no account.
+
+Writing is scoped by **ownership**, not by login. Spawning is open — anyone may join.
+The first claim on an agent id mints a secret and returns it once, in the
+`x-district-token` response header. After that, only requests carrying that token may
+act as that agent: move it, speak as it, log its tools, or despawn it. An id nobody has
+claimed is claimed by its first writer, so agents that were already on the campus keep
+working and take ownership on their next heartbeat.
+
+Despawning releases the id, so a retired name can be claimed again.
+
+There is no shared key to obtain and nothing to sign up for. `API_KEY`, if you set it,
+is a separate and blunter thing: a perimeter over all writes, off by default.
+
+Simulator control (`/api/sim/start`, `/api/sim/stop`) is not public — it is refused
+unless the hub runs with `DISTRICT_ADMIN_KEY` and the request carries `x-admin-key`.
+Nobody should be able to fill the campus with a fake crowd from a browser tab.
 
 ## Architecture
 
@@ -91,7 +114,7 @@ Humans  →  Vite/React overlay + visitor sprite (no MCP)
 - `npm run build` / `npm run typecheck` / `npm run test`
 - `npm run mcp` — stdio MCP server
 - `npm run mcp:drive` — Hermes/test client: spawn Claude, walk, tool_event, hold heartbeats
-- `npm run sim` — start simulator via HTTP
+- `npm run sim` — start simulator via HTTP (needs `DISTRICT_ADMIN_KEY`)
 
 ## Avenue
 

@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { callTool, TOOL_DEFS } from "./tools.js";
-import { hubPost, readAgentId, writeAgentId } from "./hub-client.js";
+import { hubPost, readAgentId, readToken, takeIssuedToken, writeAgentId, writeToken } from "./hub-client.js";
 import type { Agent } from "@district/shared";
 
 const server = new McpServer({ name: "district", version: "0.1.0" });
@@ -36,6 +36,9 @@ async function bootBody() {
       orgId: process.env.ORG_ID ?? "org_acme",
     });
     writeAgentId(agent.id);
+    // When the hub chose the id, the token arrived before we knew what to file it under.
+    const issued = takeIssuedToken();
+    if (issued) writeToken(agent.id, issued);
     heartbeatTimer = setInterval(() => {
       const id = readAgentId();
       if (!id) return;
@@ -68,8 +71,16 @@ process.on("exit", () => {
   if (!id) return;
   try {
     const url = `${process.env.HUB_URL ?? "http://127.0.0.1:4242"}/api/agents/${id}/despawn`;
+    const token = readToken(id);
     // last-ditch; may not finish
-    void fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+    void fetch(url, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...(token ? { "x-district-token": token } : {}),
+      },
+      body: "{}",
+    });
   } catch {
     /* ignore */
   }

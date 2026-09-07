@@ -1,3 +1,4 @@
+import { agentIdOf, rememberToken, TOKEN_HEADER, tokenFor } from "./token";
 import type { Agent, ServerMessage, Snapshot, Task, WorldEvent } from "@district/shared";
 
 export type ConnState = "green" | "yellow" | "red";
@@ -75,12 +76,23 @@ export function connectWs(handlers: {
 export const HUB = hubHttp;
 
 export async function postJson(path: string, body: unknown): Promise<unknown> {
+  const actingAs = agentIdOf(path, body);
+  const token = tokenFor(actingAs);
   const res = await fetch(`${hubHttp()}${path}`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      ...(token ? { [TOKEN_HEADER]: token } : {}),
+    },
     body: JSON.stringify(body),
   });
   const json = await res.json().catch(() => ({}));
+  // A spawn hands back the secret for the agent it just created, once.
+  const issued = res.headers.get(TOKEN_HEADER);
+  if (issued) {
+    const id = actingAs ?? (json as { id?: string }).id;
+    if (id) rememberToken(id, issued);
+  }
   if (!res.ok) throw new Error((json as { error?: string }).error ?? res.statusText);
   return json;
 }

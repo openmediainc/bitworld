@@ -13,6 +13,8 @@ import {
 } from "@district/shared";
 import { World } from "./world.js";
 import { registerHttp } from "./http.js";
+import { OwnerStore, TOKEN_HEADER } from "./tokens.js";
+import { dataDir } from "./persist.js";
 import { broadcast, registerWs } from "./ws.js";
 import { simTick, startSimulator } from "./simulator.js";
 
@@ -36,15 +38,21 @@ async function main() {
     PUBLIC_ORIGIN,
     "https://q-ai.tail735569.ts.net",
   ];
-  await app.register(cors, { origin: origins });
+  await app.register(cors, {
+    origin: origins,
+    allowedHeaders: ["content-type", "x-api-key", "x-admin-key", TOKEN_HEADER],
+    exposedHeaders: [TOKEN_HEADER],
+  });
   await app.register(websocket);
 
   const clients = new Set<(msg: ServerMessage) => void>();
-  registerHttp(app, world);
+  // One store shared by both mounts below — two stores would mean two sets of owners.
+  const owners = new OwnerStore(dataDir());
+  registerHttp(app, world, owners);
   registerWs(app, world, clients);
   if (BASE_PATH) {
     await app.register(async (inst) => {
-      registerHttp(inst, world);
+      registerHttp(inst, world, owners);
       registerWs(inst, world, clients);
     }, { prefix: BASE_PATH });
   }
