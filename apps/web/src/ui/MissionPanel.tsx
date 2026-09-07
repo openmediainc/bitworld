@@ -82,7 +82,8 @@ export function MissionPanel(props: {
 
   const joined = Boolean(props.visitorId && mission.participantIds.includes(props.visitorId));
   const done = tasks.filter((task) => task.status === "done").length;
-  const participantName = (id: string) => props.agents.find((agent) => agent.id === id)?.name ?? id;
+  const participantName = (id: string, recorded?: string) =>
+    props.agents.find((agent) => agent.id === id)?.name ?? recorded ?? id;
   const setStatus = (status: MissionStatus) =>
     void postJson(`/api/missions/${mission.id}/status`, { status });
 
@@ -164,7 +165,7 @@ export function MissionPanel(props: {
                 {task.helpWanted ? "help wanted · " : ""}
                 {task.status}
                 {task.accepted ? " · accepted" : task.status === "done" && task.helpWanted ? " · needs review" : ""}
-                {task.agentId ? ` · ${participantName(task.agentId)}` : " · unassigned"}
+                {task.agentId ? ` · ${participantName(task.agentId, task.agentName)}` : " · unassigned"}
               </div>
               {joined && task.helpWanted && task.status === "done" && !task.accepted && props.visitorId && (
                 <div className="mission-actions">

@@ -158,6 +158,7 @@ export const taskSchema = z.object({
   id: z.string(),
   orgId: z.string(),
   agentId: z.string().optional(),
+  agentName: z.string().optional(),
   missionId: z.string().optional(),
   kind: z.enum(["task", "artifact"]).optional(),
   title: z.string(),

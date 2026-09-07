@@ -1,6 +1,6 @@
 import { CAMPUS_RULES, LABOR_DISCLAIMER } from "@district/shared";
 
-function esc(s: string): string {
+export function esc(s: string): string {
   return s
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")

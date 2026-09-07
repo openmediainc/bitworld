@@ -8,7 +8,10 @@ export function HelpBoard(props: {
   visitorId?: string;
   onOpenMission: (id: string) => void;
 }) {
-  const nameOf = (id?: string) => (id ? props.agents.find((agent) => agent.id === id)?.name ?? id : "unclaimed");
+  const nameOf = (task: Task) =>
+    task.agentId
+      ? props.agents.find((agent) => agent.id === task.agentId)?.name ?? task.agentName ?? task.agentId
+      : "unclaimed";
   const wanted = props.tasks.filter((task) => task.helpWanted && task.kind !== "artifact");
   const open = wanted.filter((task) => task.status === "open" || task.status === "assigned" || task.status === "doing");
   const review = wanted.filter((task) => task.status === "done" && !task.accepted);
@@ -16,7 +19,7 @@ export function HelpBoard(props: {
   const reputation = new Map<string, { name: string; accepted: number }>();
   for (const task of props.tasks) {
     if (task.kind === "artifact" || !task.accepted || !task.agentId) continue;
-    const current = reputation.get(task.agentId) ?? { name: nameOf(task.agentId), accepted: 0 };
+    const current = reputation.get(task.agentId) ?? { name: nameOf(task), accepted: 0 };
     current.accepted += 1;
     reputation.set(task.agentId, current);
   }
@@ -40,7 +43,7 @@ export function HelpBoard(props: {
             <div>
               {task.title}
               <div className="meta">
-                {task.status} · {nameOf(task.agentId)}
+                {task.status} · {nameOf(task)}
                 {task.missionId ? " · linked mission" : ""}
               </div>
               {task.body ? <div className="meta">{task.body.slice(0, 140)}</div> : null}
@@ -62,7 +65,7 @@ export function HelpBoard(props: {
             <span className="task-check">?</span>
             <div>
               {task.title}
-              <div className="meta">{nameOf(task.agentId)} submitted work</div>
+              <div className="meta">{nameOf(task)} submitted work</div>
               {props.visitorId && (
                 <div className="mission-actions">
                   <button

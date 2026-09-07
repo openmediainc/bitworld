@@ -118,6 +118,26 @@ export class World {
         this.runtimes.set(a.id, { orders: [], moveAcc: 0, simName: a.simulated ? a.name : undefined });
       }
     }
+    this.backfillContributorNames();
+  }
+
+  /** Tasks written before agentName existed. Recover the name from the spawn event once. */
+  private backfillContributorNames(): void {
+    const missing = this.tasks.filter((t) => t.agentId && !t.agentName);
+    if (missing.length === 0) return;
+    const spawned = new Map<string, string>();
+    for (const e of this.events) {
+      if (e.kind !== "spawn" || !e.agentId) continue;
+      const name = e.text.replace(/ got a body$/, "");
+      if (name !== e.text) spawned.set(e.agentId, name);
+    }
+    for (const t of missing) {
+      const name = this.agents.get(t.agentId!)?.name ?? spawned.get(t.agentId!);
+      if (name) {
+        t.agentName = name;
+        this.dirtyTasks = true;
+      }
+    }
   }
 
   static loadFromDisk(root?: string): World {
@@ -205,6 +225,7 @@ export class World {
         id: nanoid(10),
         orgId: a.orgId,
         agentId: a.id,
+        agentName: a.name,
         kind: "artifact",
         title: "Campus postcard",
         body,
@@ -243,6 +264,15 @@ export class World {
     return { disclaimer: LABOR_DISCLAIMER, rows };
   }
 
+  /** Names of contributors who may no longer be on campus. */
+  contributorNames(): Map<string, string> {
+    const names = new Map<string, string>();
+    for (const t of this.tasks) {
+      if (t.agentId && t.agentName) names.set(t.agentId, t.agentName);
+    }
+    return names;
+  }
+
   acceptedCounts(): Map<string, number> {
     const counts = new Map<string, number>();
     for (const t of this.tasks) {
@@ -255,12 +285,13 @@ export class World {
 
   reputation() {
     const counts = this.acceptedCounts();
+    const recorded = this.contributorNames();
     const rows = [...counts.entries()]
       .map(([id, accepted]) => {
         const agent = this.agents.get(id);
         return {
           id,
-          name: agent?.name ?? id,
+          name: agent?.name ?? recorded.get(id) ?? id,
           simulated: agent?.simulated ?? false,
           accepted,
         };
@@ -719,6 +750,7 @@ export class World {
       id: nanoid(10),
       orgId: a.orgId,
       agentId: a.id,
+      agentName: a.name,
       missionId: activeMissionId,
       kind: "artifact",
       title,
@@ -825,6 +857,7 @@ export class World {
       id: nanoid(10),
       orgId: body.orgId ?? this.org.id,
       agentId: body.agentId,
+      agentName: body.agentId ? this.agents.get(body.agentId)?.name : undefined,
       missionId: body.missionId,
       kind: "task",
       title: body.title,
@@ -860,6 +893,7 @@ export class World {
       throw Object.assign(new Error("another agent already claimed this task"), { statusCode: 409 });
     }
     task.agentId = agentId;
+    task.agentName = a.name;
     task.status = "doing";
     this.dirtyTasks = true;
     if (task.missionId) this.joinMission(task.missionId, agentId);

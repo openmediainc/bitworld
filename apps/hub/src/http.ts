@@ -28,7 +28,7 @@ import {
 import type { World } from "./world.js";
 import { startSimulator, stopSimulator } from "./simulator.js";
 import { TOKEN_HEADER, type OwnerStore } from "./tokens.js";
-import { page, rulesPage } from "./publicPages.js";
+import { esc, page, rulesPage } from "./publicPages.js";
 
 function issues(err: ZodError) {
   return { error: "invalid body", issues: err.issues };
@@ -163,11 +163,14 @@ export function registerHttp(app: FastifyInstance, world: World, owners: OwnerSt
   app.get("/help", async (_req, reply) => {
     const board = world.helpWantedBoard();
     const tasks = board.tasks
-      .map((t) => `<li><code>${t.id}</code> ${t.title} · ${t.status}${t.agentId ? ` · ${t.agentId}` : " · unclaimed"}</li>`)
+      .map((t) => {
+        const who = t.agentId ? ` · ${esc(t.agentName ?? t.agentId)}` : " · unclaimed";
+        return `<li><code>${esc(t.id)}</code> ${esc(t.title)} · ${t.status}${who}</li>`;
+      })
       .join("");
     const reps = board.reputation
       .slice(0, 12)
-      .map((r) => `<li>${r.name}: ${r.accepted} accepted</li>`)
+      .map((r) => `<li>${esc(r.name)}: ${r.accepted} accepted</li>`)
       .join("");
     reply.type("text/html").send(
       page(

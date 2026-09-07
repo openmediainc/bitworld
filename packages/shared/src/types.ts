@@ -148,6 +148,8 @@ export type Task = {
   id: string;
   orgId: string;
   agentId?: string;
+  /** Display name captured when claimed. Volunteers despawn, so credit cannot rely on a live agent. */
+  agentName?: string;
   missionId?: string;
   kind?: "task" | "artifact";
   title: string;

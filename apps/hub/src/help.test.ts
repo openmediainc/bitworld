@@ -43,6 +43,36 @@ describe("help wanted contributions", () => {
     expect(world.reputation().rows).toEqual([expect.objectContaining({ id: helper.id, accepted: 1 })]);
   });
 
+  it("keeps the contributor name after the volunteer despawns", () => {
+    const world = new World();
+    const human = world.upsertAgent({ id: "visitor_host", name: "Host", sprite: "visitor" });
+    const helper = world.upsertAgent({ id: "agent_helper", name: "Cursor Auto" });
+    const task = world.createTask({ title: "Public note", body: "", helpWanted: true });
+    world.claimTask(helper.id, task.id);
+    world.finishTask(helper.id, task.id, "note");
+    world.acceptTask(task.id, human.id);
+    world.despawn(helper.id);
+    expect(world.reputation().rows).toEqual([
+      expect.objectContaining({ id: helper.id, name: "Cursor Auto", accepted: 1 }),
+    ]);
+  });
+
+  it("recovers contributor names for tasks stored before agentName existed", () => {
+    const world = new World();
+    const human = world.upsertAgent({ id: "visitor_host", name: "Host", sprite: "visitor" });
+    const helper = world.upsertAgent({ id: "agent_helper", name: "Cursor Auto" });
+    const task = world.createTask({ title: "Public note", body: "", helpWanted: true });
+    world.claimTask(helper.id, task.id);
+    world.finishTask(helper.id, task.id, "note");
+    world.acceptTask(task.id, human.id);
+    world.despawn(helper.id);
+    const blob = world.toBlob();
+    for (const stored of blob.tasks) delete stored.agentName;
+    expect(new World(blob).reputation().rows).toEqual([
+      expect.objectContaining({ id: helper.id, name: "Cursor Auto", accepted: 1 }),
+    ]);
+  });
+
   it("blocks a second agent from stealing a claimed task", () => {
     const world = new World();
     const a = world.upsertAgent({ id: "agent_a", name: "A" });
