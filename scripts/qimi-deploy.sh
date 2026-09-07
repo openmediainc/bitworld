@@ -4,6 +4,17 @@
 # leaves the service unable to start.
 set -euo pipefail
 export PATH="/opt/homebrew/bin:$HOME/.local/bin:$PATH"
+
+# This script updates the checkout it lives in, and bash reads scripts as it
+# runs. Re-exec from a snapshot so a mid-run rewrite cannot shift byte offsets
+# under the interpreter.
+if [ "${DISTRICT_DEPLOY_SNAPSHOT:-}" != "1" ]; then
+  SNAPSHOT="$(mktemp -t qimi-deploy)"
+  cp "$0" "$SNAPSHOT"
+  trap 'rm -f "$SNAPSHOT"' EXIT
+  DISTRICT_DEPLOY_SNAPSHOT=1 bash "$SNAPSHOT" "$@"
+  exit $?
+fi
 REPO="${DISTRICT_REPO:-https://github.com/openmediainc/bitworld.git}"
 APP_SUPPORT="$HOME/Library/Application Support/District"
 SRC="${DISTRICT_SRC:-$APP_SUPPORT/src}"
