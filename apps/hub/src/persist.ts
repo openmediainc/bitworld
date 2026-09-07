@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import type { Agent, Org, Building, Station, Task, WorldEvent } from "@district/shared";
 
@@ -18,6 +19,11 @@ export type PersistBlob = {
 export function dataDir(root = process.cwd()): string {
   if (process.env.DATA_DIR) return path.resolve(process.env.DATA_DIR);
   return path.resolve(root, "data");
+}
+
+export function backupDir(): string {
+  if (process.env.BACKUP_DIR) return path.resolve(process.env.BACKUP_DIR);
+  return path.join(os.homedir(), "Library", "Application Support", "District", "backups");
 }
 
 function atomicWrite(file: string, json: unknown): void {
@@ -44,6 +50,34 @@ export function persistAll(dir: string, blob: PersistBlob): void {
   );
   atomicWrite(path.join(dir, "events.json"), blob.events);
   atomicWrite(path.join(dir, "tasks.json"), blob.tasks);
+}
+
+export function backupData(sourceDir: string, destinationDir = backupDir(), keep = 30): string {
+  fs.mkdirSync(destinationDir, { recursive: true });
+  const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+  const finalDir = path.join(destinationDir, `district-data-${stamp}`);
+  const tempDir = `${finalDir}.tmp`;
+  fs.mkdirSync(tempDir, { recursive: true });
+  try {
+    for (const name of fs.readdirSync(sourceDir)) {
+      if (!name.endsWith(".json")) continue;
+      fs.copyFileSync(path.join(sourceDir, name), path.join(tempDir, name));
+    }
+    fs.renameSync(tempDir, finalDir);
+  } catch (error) {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+    throw error;
+  }
+
+  const complete = fs
+    .readdirSync(destinationDir)
+    .filter((name) => name.startsWith("district-data-") && !name.endsWith(".tmp"))
+    .sort()
+    .reverse();
+  for (const name of complete.slice(keep)) {
+    fs.rmSync(path.join(destinationDir, name), { recursive: true, force: true });
+  }
+  return finalDir;
 }
 
 export function loadAll(dir: string): PersistBlob | null {

@@ -14,7 +14,7 @@ import {
 import { World } from "./world.js";
 import { registerHttp } from "./http.js";
 import { OwnerStore, TOKEN_HEADER } from "./tokens.js";
-import { dataDir } from "./persist.js";
+import { backupData, dataDir } from "./persist.js";
 import { broadcast, registerWs } from "./ws.js";
 import { simTick, startSimulator } from "./simulator.js";
 
@@ -23,9 +23,19 @@ const HOST = process.env.HOST ?? "127.0.0.1";
 const BASE_PATH = (process.env.BASE_PATH ?? "").replace(/\/$/, "");
 const PUBLIC_ORIGIN = process.env.PUBLIC_ORIGIN ?? `http://127.0.0.1:${PORT}`;
 const SERVE_WEB = process.env.SERVE_WEB === "1" || process.env.SERVE_WEB === "true";
+const BACKUP_EVERY_MS = 24 * 60 * 60 * 1000;
 
 async function main() {
   const world = World.loadFromDisk();
+  const persistAndBackup = () => {
+    world.persist();
+    try {
+      const destination = backupData(dataDir());
+      console.log(`[district backup] ${destination}`);
+    } catch (error) {
+      console.error("campus backup failed", error);
+    }
+  };
   if (process.env.DISTRICT_SIM === "1") {
     const hasSim = [...world.agents.values()].some((a) => a.simulated);
     if (!hasSim) startSimulator(world);
@@ -95,6 +105,7 @@ async function main() {
   }, SNAPSHOT_EVERY_MS);
 
   setInterval(() => world.persist(), PERSIST_EVERY_MS);
+  setInterval(persistAndBackup, BACKUP_EVERY_MS);
 
   const shutdown = () => {
     try {
@@ -109,6 +120,7 @@ async function main() {
 
   await app.listen({ port: PORT, host: HOST });
   console.log(`[district hub] http://${HOST}:${PORT}${BASE_PATH || ""} origin=${PUBLIC_ORIGIN}`);
+  persistAndBackup();
 }
 
 main().catch((err) => {
