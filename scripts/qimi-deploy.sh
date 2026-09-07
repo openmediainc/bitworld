@@ -18,4 +18,3 @@ if launchctl print "gui/${UID_N}/digital.openmedia.district" >/dev/null 2>&1; th
   launchctl bootout "gui/${UID_N}/digital.openmedia.district"
 fi
 launchctl bootstrap "gui/${UID_N}" "$PLIST"
-launchctl kickstart "gui/${UID_N}/digital.openmedia.district"

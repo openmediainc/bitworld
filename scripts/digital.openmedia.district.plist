@@ -9,7 +9,8 @@
   <key>ProgramArguments</key>
   <array>
     <string>/opt/homebrew/bin/node</string>
-    <string>/Volumes/MacMiniExtended/Local Server/District/node_modules/tsx/dist/cli.mjs</string>
+    <string>--import</string>
+    <string>tsx</string>
     <string>/Volumes/MacMiniExtended/Local Server/District/apps/hub/src/index.ts</string>
   </array>
   <key>EnvironmentVariables</key>
