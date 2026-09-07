@@ -21,7 +21,7 @@
     <key>HOST</key>
     <string>127.0.0.1</string>
     <key>BASE_PATH</key>
-    <string>/district</string>
+    <string></string>
     <key>SERVE_WEB</key>
     <string>1</string>
     <key>DISTRICT_SIM</key>
@@ -29,7 +29,7 @@
     <key>DATA_DIR</key>
     <string>/Volumes/MacMiniExtended/Local Server/District/data</string>
     <key>PUBLIC_ORIGIN</key>
-    <string>https://q-ai.tail735569.ts.net</string>
+    <string>https://q-ai.tail735569.ts.net/district</string>
   </dict>
   <key>RunAtLoad</key>
   <true/>

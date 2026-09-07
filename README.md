@@ -108,7 +108,7 @@ Tailscale **Serve, not Funnel**. Path is `/district` so we do not steal Papercli
 - Campus: https://q-ai.tail735569.ts.net/district/
 - After a push: `ssh q-mac@q-ai 'bash "/Volumes/MacMiniExtended/Local Server/District/scripts/qimi-deploy.sh"'`
 
-Hub env on the Mini: `BASE_PATH=/district SERVE_WEB=1 HOST=127.0.0.1 PORT=4242`. LaunchAgent `digital.openmedia.district`. If `active=false`, bootstrap from a **Mini Terminal**.
+Hub env on the Mini: `SERVE_WEB=1 HOST=127.0.0.1 PORT=4242` (empty `BASE_PATH` — Tailscale Serve strips `/district` before the hub). Vite still builds with `DISTRICT_BASE=/district/` so the browser requests `/district/assets/...` and does not collide with Paperclip `/assets`.
 
 ## v1 limits
 

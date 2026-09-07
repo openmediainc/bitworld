@@ -9,6 +9,7 @@ git reset --hard origin/main
 npm ci
 export DISTRICT_BASE="${DISTRICT_BASE:-/district/}"
 npm run build -w @district/web
+cp "$ROOT/scripts/digital.openmedia.district.plist" "$HOME/Library/LaunchAgents/digital.openmedia.district.plist"
 UID_N="$(id -u)"
 PLIST="$HOME/Library/LaunchAgents/digital.openmedia.district.plist"
 if launchctl print "gui/${UID_N}/digital.openmedia.district" >/dev/null 2>&1; then
