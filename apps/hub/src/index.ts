@@ -1,6 +1,9 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import websocket from "@fastify/websocket";
+import fastifyStatic from "@fastify/static";
+import fs from "node:fs";
+import path from "node:path";
 import {
   PERSIST_EVERY_MS,
   SNAPSHOT_EVERY_MS,
@@ -14,6 +17,10 @@ import { broadcast, registerWs } from "./ws.js";
 import { simTick, startSimulator } from "./simulator.js";
 
 const PORT = Number(process.env.PORT ?? 4242);
+const HOST = process.env.HOST ?? "127.0.0.1";
+const BASE_PATH = (process.env.BASE_PATH ?? "").replace(/\/$/, "");
+const PUBLIC_ORIGIN = process.env.PUBLIC_ORIGIN ?? `http://127.0.0.1:${PORT}`;
+const SERVE_WEB = process.env.SERVE_WEB === "1" || process.env.SERVE_WEB === "true";
 
 async function main() {
   const world = World.loadFromDisk();
@@ -23,13 +30,46 @@ async function main() {
   }
 
   const app = Fastify({ logger: false });
-  await app.register(cors, {
-    origin: ["http://127.0.0.1:5173", "http://localhost:5173"],
-  });
+  const origins = [
+    "http://127.0.0.1:5173",
+    "http://localhost:5173",
+    PUBLIC_ORIGIN,
+    "https://q-ai.tail735569.ts.net",
+  ];
+  await app.register(cors, { origin: origins });
   await app.register(websocket);
-  registerHttp(app, world);
+
   const clients = new Set<(msg: ServerMessage) => void>();
+  registerHttp(app, world);
   registerWs(app, world, clients);
+  if (BASE_PATH) {
+    await app.register(async (inst) => {
+      registerHttp(inst, world);
+      registerWs(inst, world, clients);
+    }, { prefix: BASE_PATH });
+  }
+
+  if (SERVE_WEB) {
+    const dist = path.resolve(process.cwd(), "apps/web/dist");
+    if (!fs.existsSync(path.join(dist, "index.html"))) {
+      throw new Error(`SERVE_WEB=1 but missing ${dist}/index.html — run DISTRICT_BASE=${BASE_PATH || "/"} npm run build -w @district/web`);
+    }
+    const prefix = BASE_PATH ? `${BASE_PATH}/` : "/";
+    await app.register(fastifyStatic, {
+      root: dist,
+      prefix,
+      index: "index.html",
+      wildcard: false,
+    });
+    const spaUrls = BASE_PATH ? [BASE_PATH, `${BASE_PATH}/`] : ["/"];
+    for (const url of spaUrls) {
+      app.route({
+        method: "GET",
+        url,
+        handler: async (_req, reply) => reply.sendFile("index.html"),
+      });
+    }
+  }
 
   const tickMs = 1000 / TICK_HZ;
   setInterval(() => {
@@ -60,8 +100,8 @@ async function main() {
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
 
-  await app.listen({ port: PORT, host: "127.0.0.1" });
-  console.log(`[district hub] http://127.0.0.1:${PORT}`);
+  await app.listen({ port: PORT, host: HOST });
+  console.log(`[district hub] http://${HOST}:${PORT}${BASE_PATH || ""} origin=${PUBLIC_ORIGIN}`);
 }
 
 main().catch((err) => {

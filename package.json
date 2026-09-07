@@ -15,7 +15,8 @@
     "test": "npm run test --workspaces --if-present",
     "mcp": "npm run start -w @district/mcp-server",
     "sim": "node scripts/sim.mjs",
-    "mcp:drive": "node scripts/mcp-drive.mjs --keep"
+    "mcp:drive": "node scripts/mcp-drive.mjs --keep",
+    "start": "node scripts/prod.mjs"
   },
   "engines": {
     "node": ">=20"

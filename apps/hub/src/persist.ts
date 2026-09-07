@@ -16,6 +16,7 @@ export type PersistBlob = {
 };
 
 export function dataDir(root = process.cwd()): string {
+  if (process.env.DATA_DIR) return path.resolve(process.env.DATA_DIR);
   return path.resolve(root, "data");
 }
 

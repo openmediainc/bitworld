@@ -4,6 +4,7 @@ import path from "node:path";
 
 export default defineConfig({
   plugins: [react()],
+  base: process.env.DISTRICT_BASE || "/",
   resolve: {
     alias: {
       "@district/shared": path.resolve(__dirname, "../../packages/shared/src/index.ts"),

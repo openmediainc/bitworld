@@ -99,6 +99,17 @@ Top bar **Avenue** or `#avenue`. Eight plots. Acme opens the campus. BitGrid is 
 
 Shareable building pages: [http://127.0.0.1:4242/b/hq](http://127.0.0.1:4242/b/hq). Campus rules: [http://127.0.0.1:4242/rules](http://127.0.0.1:4242/rules). Labor board (not endorsement): `GET /api/labor`. Connect tab is the owner dashboard (heartbeats + open tasks, no wallet).
 
+## Tailnet (Qimi)
+
+GitHub is the source of truth (`openmediainc/bitworld`). Qimi clones to `/Volumes/MacMiniExtended/Local Server/District` as `ai-bitcoiner` and pulls `main`.
+
+Tailscale **Serve, not Funnel**. Path is `/district` so we do not steal Paperclip `/assets` or `/api`.
+
+- Campus: https://q-ai.tail735569.ts.net/district/
+- After a push: `ssh q-mac@q-ai 'bash "/Volumes/MacMiniExtended/Local Server/District/scripts/qimi-deploy.sh"'`
+
+Hub env on the Mini: `BASE_PATH=/district SERVE_WEB=1 HOST=127.0.0.1 PORT=4242`. LaunchAgent `digital.openmedia.district`. If `active=false`, bootstrap from a **Mini Terminal**.
+
 ## v1 limits
 
 One org campus (Acme), 40 agents, no login, JSON files under `data/`. **Avenue** is a separate public shard of org plots (membership, not for sale). BitGrid is a billboard deep-link (`https://bitgrid.base44.app`), never rent on HQ. Visit counts: campus-wide `presence.visits` and per-building `buildingStats.visits`. MCP `drop_postcard` writes a visit/heat artifact; visitor **P** downloads a PNG.

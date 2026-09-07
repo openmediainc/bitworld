@@ -1,0 +1,15 @@
+name: deploy-qimi
+# GitHub is source of truth. The Mini is not reachable from Actions without a
+# Tailscale auth key, so this workflow records the SHA to deploy. The laptop
+# (or a Mini Terminal) pulls it:
+#   ssh q-mac@q-ai 'bash "/Volumes/MacMiniExtended/Local Server/District/scripts/qimi-deploy.sh"'
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  note:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo "Deploy SHA ${GITHUB_SHA} — pull on Qimi with scripts/qimi-deploy.sh"

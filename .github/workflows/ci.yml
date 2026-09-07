@@ -15,3 +15,4 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run test
+      - run: DISTRICT_BASE=/district/ npm run build -w @district/web

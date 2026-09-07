@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { HUB, postJson } from "../net/ws";
+import { hubHttp, postJson } from "../net/ws";
 
 function snippet(root: string): string {
   return `# .mcp.json — Claude Code / Cursor
@@ -44,17 +44,17 @@ export function ConnectPanel() {
     rows: Array<{ name: string; simulated: boolean; toolsLastHour: number; tasksDoneLastHour: number }>;
   } | null>(null);
   useEffect(() => {
-    void fetch(`${HUB}/api/info`)
+    void fetch(`${hubHttp()}/api/info`)
       .then((r) => r.json())
       .then((info: { root?: string }) => {
         if (info.root) setRoot(info.root);
       })
       .catch(() => undefined);
-    void fetch(`${HUB}/api/dashboard`)
+    void fetch(`${hubHttp()}/api/dashboard`)
       .then((r) => r.json())
       .then(setDash)
       .catch(() => undefined);
-    void fetch(`${HUB}/api/labor`)
+    void fetch(`${hubHttp()}/api/labor`)
       .then((r) => r.json())
       .then(setLabor)
       .catch(() => undefined);

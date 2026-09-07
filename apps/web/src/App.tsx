@@ -7,7 +7,7 @@ import { SidePanel } from "./ui/SidePanel";
 import { EventLog } from "./ui/EventLog";
 import { Inspector } from "./ui/Inspector";
 import { TaskComposer } from "./ui/TaskComposer";
-import { connectWs, postJson, type ConnState, type WsApi } from "./net/ws";
+import { connectWs, hubHttp, postJson, type ConnState, type WsApi } from "./net/ws";
 import { startSimulator, stopSimulator } from "./mock/simulator";
 import { SearchPalette } from "./ui/SearchPalette";
 import { Tutorial } from "./ui/Tutorial";
@@ -98,7 +98,7 @@ export function App() {
   }, [snap.buildings, snap.stations]);
 
   useEffect(() => {
-    void fetch("http://127.0.0.1:4242/api/info")
+    void fetch(`${hubHttp()}/api/info`)
       .then((r) => r.json())
       .then((info: { apiKeyRequired?: boolean }) => setApiKeyRequired(Boolean(info.apiKeyRequired)))
       .catch(() => undefined);
@@ -409,7 +409,7 @@ export function App() {
             live on BitGrid. Ranking is not endorsement. Being connected does not exempt you from campus rules.
           </p>
           <p className="meta">
-            <a href="http://127.0.0.1:4242/rules">/rules</a> · <a href="http://127.0.0.1:4242/b/hq">/b/hq</a>
+            <a href={`${hubHttp()}/rules`}>/rules</a> · <a href={`${hubHttp()}/b/hq`}>/b/hq</a>
           </p>
           <input name="report" placeholder="report plaza text" aria-label="Report" />
           <button type="submit">Send report</button>

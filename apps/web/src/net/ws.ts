@@ -4,6 +4,22 @@ export type ConnState = "green" | "yellow" | "red";
 
 const BACKOFF = [500, 1000, 2000, 5000];
 
+function stripSlash(s: string): string {
+  return s.replace(/\/$/, "");
+}
+
+/** Dev talks to the hub directly. Production uses same-origin + Vite base (e.g. /district). */
+export function hubHttp(): string {
+  if (import.meta.env.DEV) return "http://127.0.0.1:4242";
+  return `${window.location.origin}${stripSlash(import.meta.env.BASE_URL)}`;
+}
+
+export function hubWs(): string {
+  if (import.meta.env.DEV) return "ws://127.0.0.1:4242/ws";
+  const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+  return `${proto}//${window.location.host}${stripSlash(import.meta.env.BASE_URL)}/ws`;
+}
+
 export type WsApi = {
   send: (msg: object) => void;
   close: () => void;
@@ -22,8 +38,8 @@ export function connectWs(handlers: {
 
   const open = () => {
     if (closed) return;
-    handlers.onStatus(attempt === 0 ? "yellow" : "yellow");
-    ws = new WebSocket("ws://127.0.0.1:4242/ws");
+    handlers.onStatus("yellow");
+    ws = new WebSocket(hubWs());
     ws.onopen = () => {
       attempt = 0;
       handlers.onStatus("green");
@@ -56,10 +72,10 @@ export function connectWs(handlers: {
   };
 }
 
-export const HUB = "http://127.0.0.1:4242";
+export const HUB = hubHttp;
 
 export async function postJson(path: string, body: unknown): Promise<unknown> {
-  const res = await fetch(`${HUB}${path}`, {
+  const res = await fetch(`${hubHttp()}${path}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),

@@ -68,7 +68,9 @@ export function registerHttp(app: FastifyInstance, world: World): void {
 
   app.get("/api/info", async () => ({
     root: process.cwd(),
-    hubUrl: `http://127.0.0.1:${process.env.PORT ?? 4242}`,
+    hubUrl: process.env.PUBLIC_ORIGIN
+      ? `${process.env.PUBLIC_ORIGIN}${process.env.BASE_PATH ?? ""}`
+      : `http://127.0.0.1:${process.env.PORT ?? 4242}`,
     apiKeyRequired: Boolean(process.env.API_KEY),
     mcpEntry: "packages/mcp-server/src/index.ts",
   }));

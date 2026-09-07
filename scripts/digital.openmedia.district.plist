@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>digital.openmedia.district</string>
+  <key>WorkingDirectory</key>
+  <string>/Volumes/MacMiniExtended/Local Server/District</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/node</string>
+    <string>/Volumes/MacMiniExtended/Local Server/District/node_modules/tsx/dist/cli.mjs</string>
+    <string>/Volumes/MacMiniExtended/Local Server/District/apps/hub/src/index.ts</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/bin:/bin</string>
+    <key>PORT</key>
+    <string>4242</string>
+    <key>HOST</key>
+    <string>127.0.0.1</string>
+    <key>BASE_PATH</key>
+    <string>/district</string>
+    <key>SERVE_WEB</key>
+    <string>1</string>
+    <key>DISTRICT_SIM</key>
+    <string>1</string>
+    <key>DATA_DIR</key>
+    <string>/Volumes/MacMiniExtended/Local Server/District/data</string>
+    <key>PUBLIC_ORIGIN</key>
+    <string>https://q-ai.tail735569.ts.net</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/tmp/district.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/district.err.log</string>
+</dict>
+</plist>
