@@ -94,7 +94,7 @@ export class World {
     this.org = blob?.org ?? seed.org;
     this.buildings = blob?.buildings?.length ? blob.buildings : seed.buildings;
     this.stations = blob?.stations?.length ? blob.stations : seed.stations;
-    this.simEnabled = blob?.simEnabled ?? true;
+    this.simEnabled = process.env.DISTRICT_SIM === "1" ? (blob?.simEnabled ?? false) : false;
     this.tasks = blob?.tasks ?? [];
     this.events = blob?.events ?? [];
     this.campusVisits = blob?.campusVisits ?? 0;
@@ -106,6 +106,7 @@ export class World {
     if (blob?.agents) {
       for (const a of blob.agents) {
         if (a.sprite === "visitor") continue;
+        if (a.simulated && process.env.DISTRICT_SIM !== "1") continue;
         this.agents.set(a.id, a);
         this.runtimes.set(a.id, { orders: [], moveAcc: 0, simName: a.simulated ? a.name : undefined });
       }

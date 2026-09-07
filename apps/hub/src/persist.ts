@@ -40,7 +40,7 @@ export function persistAll(dir: string, blob: PersistBlob): void {
   atomicWrite(path.join(dir, "orgs.json"), [blob.org]);
   atomicWrite(
     path.join(dir, "agents.json"),
-    blob.agents.filter((a) => a.sprite !== "visitor"),
+    blob.agents.filter((a) => a.sprite !== "visitor" && !a.simulated),
   );
   atomicWrite(path.join(dir, "events.json"), blob.events);
   atomicWrite(path.join(dir, "tasks.json"), blob.tasks);
