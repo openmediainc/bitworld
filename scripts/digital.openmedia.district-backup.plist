@@ -7,7 +7,7 @@
   <key>ProgramArguments</key>
   <array>
     <string>/bin/bash</string>
-    <string>/Volumes/MacMiniExtended/Local Server/District/scripts/qimi-backup.sh</string>
+    <string>/Users/q-mac/Library/Application Support/District/qimi-backup.sh</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>
