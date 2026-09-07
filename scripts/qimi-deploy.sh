@@ -32,17 +32,38 @@ npm run build -w @district/web
 PLIST="$HOME/Library/LaunchAgents/digital.openmedia.district.plist"
 cp "$RUNTIME/scripts/digital.openmedia.district.plist" "$PLIST"
 UID_N="$(id -u)"
-if launchctl print "gui/${UID_N}/digital.openmedia.district" >/dev/null 2>&1; then
+LABEL="digital.openmedia.district"
+loaded() { launchctl list 2>/dev/null | /usr/bin/grep -q "$LABEL"; }
+
+if loaded; then
   # kickstart retains the previously loaded environment. Reload the plist so
   # BASE_PATH and other release settings actually take effect.
-  launchctl bootout "gui/${UID_N}/digital.openmedia.district"
+  launchctl bootout "gui/${UID_N}/${LABEL}" || true
+  # bootout returns before launchd finishes unloading, and bootstrapping into a
+  # half-unloaded service fails with EIO.
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    loaded || break
+    sleep 1
+  done
 fi
+
 for attempt in 1 2 3 4 5; do
   if launchctl bootstrap "gui/${UID_N}" "$PLIST"; then
     break
   fi
   if [ "$attempt" -eq 5 ]; then
+    echo "[district] could not bootstrap ${LABEL}" >&2
     exit 1
+  fi
+  sleep 2
+done
+
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+  if curl -fsS -m 2 "http://127.0.0.1:${PORT:-4242}/health" >/dev/null 2>&1; then
+    echo "[district] deployed and healthy"
+    exit 0
   fi
   sleep 1
 done
+echo "[district] service never answered /health — check /tmp/district.err.log" >&2
+exit 1
