@@ -87,5 +87,5 @@ process.on("exit", () => {
 });
 
 const transport = new StdioServerTransport();
-await server.connect(transport);
 await bootBody();
+await server.connect(transport);
