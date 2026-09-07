@@ -70,6 +70,8 @@ export function App() {
   const name = useRef(visitorName());
   const stableVisitorId = useRef(visitorIdentity());
   const [visitorSessionId, setVisitorSessionId] = useState<string | undefined>(undefined);
+  const appliedHash = useRef("");
+  const [hashVersion, setHashVersion] = useState(0);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -86,9 +88,20 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    const onHashChange = () => setHashVersion((version) => version + 1);
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
+
+  useEffect(() => {
     if (!snap.buildings.length) return;
     const h = decodeURIComponent(location.hash.replace(/^#/, ""));
-    if (!h) return;
+    if (!h) {
+      appliedHash.current = "";
+      return;
+    }
+    if (appliedHash.current === h) return;
+    appliedHash.current = h;
     if (h === "help") {
       setTab("help");
       return;
@@ -126,7 +139,7 @@ export function App() {
       const s = snap.stations.find((x) => x.mcpServerName === slug || x.id === slug || x.name.toLowerCase().includes(slug));
       if (s) setSelectedStation(s.id);
     }
-  }, [snap.buildings, snap.stations, snap.missions]);
+  }, [hashVersion, snap.buildings, snap.stations, snap.missions]);
 
   useEffect(() => {
     void fetch(`${hubHttp()}/api/info`)
@@ -139,8 +152,8 @@ export function App() {
     const host = hostRef.current;
     if (!host) return;
     const size = () => ({
-      w: Math.max(640, window.innerWidth - 320),
-      h: Math.max(360, window.innerHeight - 40 - 160),
+      w: Math.max(1, host.clientWidth),
+      h: Math.max(1, host.clientHeight),
     });
     const { w, h } = size();
     const game = new Phaser.Game(gameConfig(host, w, h));
@@ -197,8 +210,11 @@ export function App() {
       const s = size();
       game.scale.resize(s.w, s.h);
     };
+    const observer = new ResizeObserver(onResize);
+    observer.observe(host);
     window.addEventListener("resize", onResize);
     return () => {
+      observer.disconnect();
       window.removeEventListener("resize", onResize);
       game.destroy(true);
     };

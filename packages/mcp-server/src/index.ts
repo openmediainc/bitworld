@@ -1,7 +1,16 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { callTool, TOOL_DEFS } from "./tools.js";
-import { hubPost, readAgentId, readToken, takeIssuedToken, writeAgentId, writeToken } from "./hub-client.js";
+import {
+  ensureHeartbeat,
+  hubPost,
+  readAgentId,
+  readToken,
+  stopHeartbeat,
+  takeIssuedToken,
+  writeAgentId,
+  writeToken,
+} from "./hub-client.js";
 import type { Agent } from "@district/shared";
 
 const server = new McpServer({ name: "district", version: "0.1.0" });
@@ -23,8 +32,6 @@ for (const def of TOOL_DEFS) {
   }
 }
 
-let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
-
 async function bootBody() {
   try {
     const existing = readAgentId();
@@ -39,18 +46,14 @@ async function bootBody() {
     // When the hub chose the id, the token arrived before we knew what to file it under.
     const issued = takeIssuedToken();
     if (issued) writeToken(agent.id, issued);
-    heartbeatTimer = setInterval(() => {
-      const id = readAgentId();
-      if (!id) return;
-      void hubPost(`/api/agents/${id}/heartbeat`, {}).catch(() => undefined);
-    }, 10_000);
+    ensureHeartbeat();
   } catch (e) {
     console.error("[district mcp] spawn failed", e);
   }
 }
 
 async function despawnBestEffort() {
-  if (heartbeatTimer) clearInterval(heartbeatTimer);
+  stopHeartbeat();
   const id = readAgentId();
   if (!id) return;
   try {

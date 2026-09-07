@@ -3,11 +3,17 @@ import { hubHttp } from "./ws";
 
 const ID_KEY = "district.builderId";
 const TOKEN_KEY = "district.builderToken";
+const REQUEST_TIMEOUT_MS = 15_000;
 
 export function builderSession(): { id: string; token: string } | null {
   const id = localStorage.getItem(ID_KEY);
   const token = localStorage.getItem(TOKEN_KEY);
   return id && token ? { id, token } : null;
+}
+
+export function clearBuilderSession(): void {
+  localStorage.removeItem(ID_KEY);
+  localStorage.removeItem(TOKEN_KEY);
 }
 
 export async function restoreBuilder(id: string, token: string): Promise<CollaborationWorkspace> {
@@ -56,6 +62,7 @@ export async function registerBuilder(input: {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(input),
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
   const profile = await parse<BuilderProfile>(response);
   const token = response.headers.get("x-builder-token");
@@ -66,7 +73,12 @@ export async function registerBuilder(input: {
 }
 
 export async function builderGet<T>(path: string): Promise<T> {
-  return parse<T>(await fetch(`${hubHttp()}${path}`, { headers: headers() }));
+  return parse<T>(
+    await fetch(`${hubHttp()}${path}`, {
+      headers: headers(),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    }),
+  );
 }
 
 export async function builderPost<T>(path: string, body: unknown = {}): Promise<T> {
@@ -75,6 +87,7 @@ export async function builderPost<T>(path: string, body: unknown = {}): Promise<
       method: "POST",
       headers: headers(),
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     }),
   );
 }
@@ -84,6 +97,7 @@ export async function rotateBuilderToken(): Promise<string> {
     method: "POST",
     headers: headers(),
     body: "{}",
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
   await parse<{ ok: boolean }>(response);
   const token = response.headers.get("x-builder-token");

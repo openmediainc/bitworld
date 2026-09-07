@@ -167,6 +167,19 @@ export function registerHttp(
       : undefined;
   };
 
+  const agentActivity = (
+    reply: FastifyReply,
+    agentId: string,
+    requested?: string,
+  ): { missionId?: string } | null => {
+    try {
+      return { missionId: collaboration.resolveAgentActivityMission(agentId, requested) };
+    } catch (error) {
+      routeError(reply, error);
+      return null;
+    }
+  };
+
   app.get("/health", async () => ({
     ok: true,
     agents: world.agents.size,
@@ -249,6 +262,11 @@ export function registerHttp(
   app.get("/api/builders", async () => collaboration.publicBuilders());
   app.post("/api/builders/register", async (req, reply) => {
     const now = Date.now();
+    if (registrations.size > 10_000) {
+      for (const [ip, attempts] of registrations) {
+        if (!attempts.some((at) => at > now - 60 * 60 * 1000)) registrations.delete(ip);
+      }
+    }
     const recent = (registrations.get(req.ip) ?? []).filter((at) => at > now - 60 * 60 * 1000);
     if (recent.length >= 5) return reply.code(429).send({ error: "builder registration rate limit exceeded" });
     recent.push(now);
@@ -257,7 +275,13 @@ export function registerHttp(
     if (!body) return;
     try {
       const profile = collaboration.register({ ...body, skills: body.skills ?? [] });
-      const token = builderTokens.issue(profile.id);
+      let token: string;
+      try {
+        token = builderTokens.issue(profile.id);
+      } catch (error) {
+        collaboration.rollbackRegistration(profile.id);
+        throw error;
+      }
       reply.header(BUILDER_TOKEN_HEADER, token);
       return profile;
     } catch (error) {
@@ -279,8 +303,12 @@ export function registerHttp(
     const id = authenticatedBuilder(req, reply);
     if (!id) return;
     const token = builderTokens.rotate(id);
-    collaboration.recordTokenRotation(id);
     reply.header(BUILDER_TOKEN_HEADER, token);
+    try {
+      collaboration.recordTokenRotation(id);
+    } catch (error) {
+      console.error("[district] could not audit builder token rotation", error);
+    }
     return { ok: true };
   });
   app.post("/api/builders/me/agents", async (req, reply) => {
@@ -293,6 +321,23 @@ export function registerHttp(
     }
     try {
       return collaboration.bindAgent(builderId, body.agentId);
+    } catch (error) {
+      return routeError(reply, error);
+    }
+  });
+  app.post("/api/builders/me/agents/:id/remove", async (req, reply) => {
+    const builderId = authenticatedBuilder(req, reply);
+    if (!builderId) return;
+    const { id } = req.params as { id: string };
+    try {
+      const builder = collaboration.removeAgent(builderId, id);
+      world.despawn(id);
+      try {
+        owners.release(id);
+      } catch (error) {
+        console.error("[district] fleet agent removed but its id remains reserved", error);
+      }
+      return builder;
     } catch (error) {
       return routeError(reply, error);
     }
@@ -316,7 +361,8 @@ export function registerHttp(
     const body = await parse(fleetEnrollmentAcceptBodySchema, req, reply);
     if (!body) return;
     try {
-      return collaboration.enrollAgent(id, body.token);
+      const { visitorId: _visitorId, ...builder } = collaboration.enrollAgent(id, body.token);
+      return builder;
     } catch (error) {
       return routeError(reply, error);
     }
@@ -381,6 +427,16 @@ export function registerHttp(
     const { id } = req.params as { id: string };
     try {
       return collaboration.acceptTargetedInvite(builderId, id);
+    } catch (error) {
+      return routeError(reply, error);
+    }
+  });
+  app.post("/api/invites/:id/revoke", async (req, reply) => {
+    const builderId = authenticatedBuilder(req, reply);
+    if (!builderId) return;
+    const { id } = req.params as { id: string };
+    try {
+      return collaboration.revokeInvite(builderId, id);
     } catch (error) {
       return routeError(reply, error);
     }
@@ -560,7 +616,10 @@ export function registerHttp(
   });
   app.get("/api/events", async (req) => {
     const q = req.query as { limit?: string };
-    const limit = Math.min(Number(q.limit ?? 50), 500);
+    const requested = Number(q.limit ?? 50);
+    const limit = Number.isFinite(requested)
+      ? Math.max(1, Math.min(Math.trunc(requested), 500))
+      : 50;
     const privateIds = new Set(
       world.missions.filter((mission) => mission.visibility === "private").map((mission) => mission.id),
     );
@@ -603,11 +662,18 @@ export function registerHttp(
     if (!body) return;
     if (body.missionId) {
       const mission = world.missions.find((item) => item.id === body.missionId);
+      if (mission?.visibility === "private" && body.helpWanted) {
+        return reply.code(400).send({ error: "private mission tasks cannot be help wanted" });
+      }
+      if (mission?.status === "completed") {
+        return reply.code(409).send({ error: "cannot add tasks to a completed mission" });
+      }
       if (mission?.ownerBuilderId) {
         const builderId = authenticatedBuilder(req, reply);
         if (!builderId) return;
         try {
           collaboration.requireMember(builderId, mission.id);
+          if (body.agentId) collaboration.requireAgentMissionAccess(body.agentId, mission.id);
         } catch (error) {
           return routeError(reply, error);
         }
@@ -629,9 +695,8 @@ export function registerHttp(
         const builderId = authenticatedBuilder(req, reply);
         if (!builderId) return;
         collaboration.requireMember(builderId, mission.id);
-        if (collaboration.requireBuilder(builderId).visitorId !== body.participantId) {
-          return reply.code(403).send({ error: "review must use the builder's bound visitor" });
-        }
+        const builder = collaboration.requireBuilder(builderId);
+        return world.acceptTaskByBuilder(id, builder.id, builder.displayName);
       }
       return world.acceptTask(id, body.participantId);
     } catch (e) {
@@ -653,9 +718,8 @@ export function registerHttp(
         const builderId = authenticatedBuilder(req, reply);
         if (!builderId) return;
         collaboration.requireMember(builderId, mission.id);
-        if (collaboration.requireBuilder(builderId).visitorId !== body.participantId) {
-          return reply.code(403).send({ error: "review must use the builder's bound visitor" });
-        }
+        const builder = collaboration.requireBuilder(builderId);
+        return world.rejectTaskByBuilder(id, builder.id, builder.displayName, body.reason);
       }
       return world.rejectTask(id, body.participantId, body.reason);
     } catch (e) {
@@ -765,7 +829,16 @@ export function registerHttp(
     if (!body) return;
     const { id } = req.params as { id: string };
     if (!own(req, reply, id)) return;
-    return world.heartbeat(id, body);
+    return world.heartbeat(
+      id,
+      collaboration.agentHasActivePrivateMission(id)
+        ? {
+            ...body,
+            bubble: body.bubble === undefined ? undefined : "Working privately",
+            currentTool: body.currentTool === undefined ? undefined : "private",
+          }
+        : body,
+    );
   });
 
   app.post("/api/agents/:id/go_to", async (req, reply) => {
@@ -783,7 +856,9 @@ export function registerHttp(
     if (!body) return;
     const { id } = req.params as { id: string };
     if (!own(req, reply, id)) return;
-    return world.workOn(id, body);
+    const activity = agentActivity(reply, id, body.missionId);
+    if (!activity) return;
+    return world.workOn(id, { ...body, missionId: activity.missionId });
   });
 
   app.post("/api/agents/:id/speak", async (req, reply) => {
@@ -791,7 +866,9 @@ export function registerHttp(
     if (!body) return;
     const { id } = req.params as { id: string };
     if (!own(req, reply, id)) return;
-    return world.speak(id, body.text, body.toAgentName);
+    const activity = agentActivity(reply, id, body.missionId);
+    if (!activity) return;
+    return world.speak(id, body.text, body.toAgentName, activity.missionId);
   });
 
   app.post("/api/agents/:id/handoff", async (req, reply) => {
@@ -799,7 +876,9 @@ export function registerHttp(
     if (!body) return;
     const { id } = req.params as { id: string };
     if (!own(req, reply, id)) return;
-    return world.handoff(id, body.toAgentName, body.note);
+    const activity = agentActivity(reply, id, body.missionId);
+    if (!activity) return;
+    return world.handoff(id, body.toAgentName, body.note, activity.missionId);
   });
 
   app.post("/api/agents/:id/blocked", async (req, reply) => {
@@ -807,7 +886,11 @@ export function registerHttp(
     if (!body) return;
     const { id } = req.params as { id: string };
     if (!own(req, reply, id)) return;
-    return world.blocked(id, body.reason);
+    const activity = agentActivity(reply, id, body.missionId);
+    if (!activity) return;
+    const result = world.blocked(id, body.reason, activity.missionId);
+    collaboration.notifyBlocked(id, body.reason, activity.missionId);
+    return result;
   });
 
   app.post("/api/agents/:id/error", async (req, reply) => {
@@ -815,7 +898,9 @@ export function registerHttp(
     if (!body) return;
     const { id } = req.params as { id: string };
     if (!own(req, reply, id)) return;
-    return world.reportError(id, body.message);
+    const activity = agentActivity(reply, id, body.missionId);
+    if (!activity) return;
+    return world.reportError(id, body.message, activity.missionId);
   });
 
   app.post("/api/agents/:id/tool", async (req, reply) => {
@@ -823,14 +908,16 @@ export function registerHttp(
     if (!body) return;
     const { id } = req.params as { id: string };
     if (!own(req, reply, id)) return;
-    return world.toolEvent(id, body);
+    const activity = agentActivity(reply, id, body.missionId);
+    if (!activity) return;
+    return world.toolEvent(id, { ...body, missionId: activity.missionId });
   });
 
   app.post("/api/agents/:id/despawn", async (req, reply) => {
     const { id } = req.params as { id: string };
     if (!own(req, reply, id)) return;
     world.despawn(id);
-    owners.release(id);
+    if (!collaboration.builderForAgent(id)) owners.release(id);
     return { ok: true };
   });
 
@@ -844,7 +931,13 @@ export function registerHttp(
 
   // spawn is how you join and list_tasks is public reading; everything else
   // acts as a specific agent and needs that agent's token.
-  const OPEN_TOOLS = new Set(["spawn", "list_tasks", "list_help_wanted"]);
+  const OPEN_TOOLS = new Set([
+    "spawn",
+    "list_tasks",
+    "list_help_wanted",
+    "list_builders",
+    "list_opportunities",
+  ]);
 
   const mcp = async (tool: string, req: FastifyRequest, reply: FastifyReply) => {
     const id = agentIdFrom(req);
@@ -861,7 +954,16 @@ export function registerHttp(
         }
         case "heartbeat": {
           const body = heartbeatBodySchema.parse(req.body ?? {});
-          return world.heartbeat(id, body);
+          return world.heartbeat(
+            id,
+            collaboration.agentHasActivePrivateMission(id)
+              ? {
+                  ...body,
+                  bubble: body.bubble === undefined ? undefined : "Working privately",
+                  currentTool: body.currentTool === undefined ? undefined : "private",
+                }
+              : body,
+          );
         }
         case "look_around": {
           const a = world.require(id);
@@ -876,65 +978,47 @@ export function registerHttp(
         }
         case "work_on": {
           const body = workOnBodySchema.parse(req.body ?? {});
-          if (body.missionId) {
-            const mission = world.missions.find((item) => item.id === body.missionId);
-            if (!mission) return reply.code(404).send({ error: "mission not found" });
-            if (mission.visibility === "private") collaboration.requireAgentMissionAccess(id, mission.id);
-          }
-          return world.workOn(id, body);
+          const activity = agentActivity(reply, id, body.missionId);
+          if (!activity) return;
+          return world.workOn(id, { ...body, missionId: activity.missionId });
         }
         case "tool_event": {
           const body = toolEventBodySchema.parse(req.body ?? {});
-          if (body.missionId) {
-            const mission = world.missions.find((item) => item.id === body.missionId);
-            if (!mission) return reply.code(404).send({ error: "mission not found" });
-            if (mission.visibility === "private") {
-              collaboration.requireAgentMissionAccess(id, mission.id);
-            }
-          }
-          return world.toolEvent(id, body);
+          const activity = agentActivity(reply, id, body.missionId);
+          if (!activity) return;
+          return world.toolEvent(id, { ...body, missionId: activity.missionId });
         }
         case "speak": {
           const body = speakBodySchema.parse(req.body ?? {});
-          if (body.missionId) {
-            const mission = world.missions.find((item) => item.id === body.missionId);
-            if (!mission) return reply.code(404).send({ error: "mission not found" });
-            if (mission.visibility === "private") collaboration.requireAgentMissionAccess(id, mission.id);
-          }
-          return world.speak(id, body.text, body.toAgentName, body.missionId);
+          const activity = agentActivity(reply, id, body.missionId);
+          if (!activity) return;
+          return world.speak(id, body.text, body.toAgentName, activity.missionId);
         }
         case "handoff": {
           const body = handoffBodySchema.parse(req.body ?? {});
-          if (body.missionId) {
-            const mission = world.missions.find((item) => item.id === body.missionId);
-            if (!mission) return reply.code(404).send({ error: "mission not found" });
-            if (mission.visibility === "private") collaboration.requireAgentMissionAccess(id, mission.id);
-          }
-          return world.handoff(id, body.toAgentName, body.note, body.missionId);
+          const activity = agentActivity(reply, id, body.missionId);
+          if (!activity) return;
+          return world.handoff(id, body.toAgentName, body.note, activity.missionId);
         }
         case "blocked": {
           const body = blockedBodySchema.parse(req.body ?? {});
-          if (body.missionId) {
-            const mission = world.missions.find((item) => item.id === body.missionId);
-            if (!mission) return reply.code(404).send({ error: "mission not found" });
-            if (mission.visibility === "private") collaboration.requireAgentMissionAccess(id, mission.id);
-          }
-          const result = world.blocked(id, body.reason, body.missionId);
-          collaboration.notifyBlocked(id, body.reason);
+          const activity = agentActivity(reply, id, body.missionId);
+          if (!activity) return;
+          const result = world.blocked(id, body.reason, activity.missionId);
+          collaboration.notifyBlocked(id, body.reason, activity.missionId);
           return result;
         }
         case "report_error": {
           const body = errorBodySchema.parse(req.body ?? {});
-          if (body.missionId) {
-            const mission = world.missions.find((item) => item.id === body.missionId);
-            if (!mission) return reply.code(404).send({ error: "mission not found" });
-            if (mission.visibility === "private") collaboration.requireAgentMissionAccess(id, mission.id);
-          }
-          return world.reportError(id, body.message, body.missionId);
+          const activity = agentActivity(reply, id, body.missionId);
+          if (!activity) return;
+          return world.reportError(id, body.message, activity.missionId);
         }
         case "drop_artifact": {
           const body = artifactBodySchema.parse(req.body ?? {});
-          return world.dropArtifact(id, body.title, body.body);
+          const activity = agentActivity(reply, id, body.missionId);
+          if (!activity) return;
+          return world.dropArtifact(id, body.title, body.body, activity.missionId);
         }
         case "drop_postcard":
           return world.dropPostcard(id);
@@ -942,9 +1026,46 @@ export function registerHttp(
           return world.listTasks();
         case "list_help_wanted":
           return world.helpWantedBoard();
+        case "list_builders":
+          return collaboration.publicBuilders();
+        case "list_opportunities":
+          return collaboration.opportunities();
+        case "join_builder_fleet": {
+          const body = fleetEnrollmentAcceptBodySchema.parse(req.body ?? {});
+          const { visitorId: _visitorId, ...builder } = collaboration.enrollAgent(id, body.token);
+          return builder;
+        }
+        case "get_workspace":
+          return collaboration.agentWorkspace(id);
+        case "list_capabilities":
+          return collaboration.activeGrantsForAgent(id);
+        case "claim_agreement": {
+          const agreementId = (req.body as { agreementId?: unknown })?.agreementId;
+          if (typeof agreementId !== "string" || !agreementId) {
+            return reply.code(400).send({ error: "agreementId is required" });
+          }
+          return collaboration.claimAgreementAsAgent(id, agreementId);
+        }
+        case "github_action": {
+          const body = githubActionBodySchema.parse(req.body ?? {});
+          return collaboration.executeGitHub(id, body.resourceId, body.action, body.input);
+        }
+        case "deliver_agreement": {
+          const body = req.body as { agreementId?: unknown; deliveryNote?: unknown };
+          if (
+            typeof body?.agreementId !== "string" ||
+            !body.agreementId ||
+            typeof body.deliveryNote !== "string" ||
+            !body.deliveryNote
+          ) {
+            return reply.code(400).send({ error: "agreementId and deliveryNote are required" });
+          }
+          return collaboration.deliverAsAgent(id, body.agreementId, body.deliveryNote);
+        }
         case "claim_task": {
           const taskId = claimTaskBodySchema.parse(req.body ?? {}).taskId;
           const task = world.tasks.find((item) => item.id === taskId);
+          if (task?.agreementId) collaboration.requireAgreementAgent(id, task.agreementId);
           const mission = task?.missionId
             ? world.missions.find((item) => item.id === task.missionId)
             : undefined;
@@ -956,6 +1077,9 @@ export function registerHttp(
         case "finish_task": {
           const body = finishTaskBodySchema.parse(req.body ?? {});
           const task = world.tasks.find((item) => item.id === body.taskId);
+          if (task?.agreementId) {
+            return reply.code(409).send({ error: "linked agreement tasks must use deliver_agreement" });
+          }
           const mission = task?.missionId
             ? world.missions.find((item) => item.id === task.missionId)
             : undefined;
@@ -966,7 +1090,7 @@ export function registerHttp(
         }
         case "despawn": {
           world.despawn(id);
-          owners.release(id);
+          if (!collaboration.builderForAgent(id)) owners.release(id);
           return { ok: true };
         }
         default:

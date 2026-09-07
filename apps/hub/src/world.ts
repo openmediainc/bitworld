@@ -317,13 +317,27 @@ export class World {
   }
 
   helpWantedBoard() {
+    const privateMissionIds = new Set(
+      this.missions.filter((mission) => mission.visibility === "private").map((mission) => mission.id),
+    );
     const open = this.tasks.filter(
-      (t) => t.helpWanted && t.kind !== "artifact" && (t.status === "open" || t.status === "assigned" || t.status === "doing"),
+      (t) =>
+        t.helpWanted &&
+        t.kind !== "artifact" &&
+        (!t.missionId || !privateMissionIds.has(t.missionId)) &&
+        (t.status === "open" || t.status === "assigned" || t.status === "doing"),
     );
     const review = this.tasks.filter(
-      (t) => t.helpWanted && t.kind !== "artifact" && t.status === "done" && !t.accepted,
+      (t) =>
+        t.helpWanted &&
+        t.kind !== "artifact" &&
+        (!t.missionId || !privateMissionIds.has(t.missionId)) &&
+        t.status === "done" &&
+        !t.accepted,
     );
-    const missions = this.missions.filter((m) => m.helpWanted && m.status !== "completed");
+    const missions = this.missions.filter(
+      (m) => m.helpWanted && m.visibility !== "private" && m.status !== "completed",
+    );
     return {
       disclaimer: HELP_WANTED_DISCLAIMER,
       missions,
@@ -904,8 +918,15 @@ export class World {
   }
 
   listHelpWanted(): Task[] {
+    const privateMissionIds = new Set(
+      this.missions.filter((mission) => mission.visibility === "private").map((mission) => mission.id),
+    );
     return this.tasks.filter(
-      (t) => t.helpWanted && t.kind !== "artifact" && (t.status === "open" || t.status === "assigned"),
+      (t) =>
+        t.helpWanted &&
+        t.kind !== "artifact" &&
+        (!t.missionId || !privateMissionIds.has(t.missionId)) &&
+        (t.status === "open" || t.status === "assigned"),
     );
   }
 
@@ -987,7 +1008,8 @@ export class World {
     agreementId?: string;
   }): Task {
     const mission = body.missionId ? this.requireMission(body.missionId) : undefined;
-    const helpWanted = body.helpWanted ?? mission?.helpWanted;
+    const helpWanted =
+      mission?.visibility === "private" ? false : body.helpWanted ?? mission?.helpWanted;
     const task: Task = {
       id: nanoid(10),
       orgId: body.orgId ?? this.org.id,
@@ -1089,13 +1111,27 @@ export class World {
 
   acceptTask(taskId: string, participantId: string): Task {
     const actor = this.requireHuman(participantId);
+    return this.acceptTaskAs(taskId, participantId, actor.name, participantId);
+  }
+
+  acceptTaskByBuilder(taskId: string, builderId: string, builderName: string): Task {
+    return this.acceptTaskAs(taskId, builderId, builderName);
+  }
+
+  private acceptTaskAs(
+    taskId: string,
+    actorId: string,
+    actorName: string,
+    participantId?: string,
+  ): Task {
     const task = this.tasks.find((t) => t.id === taskId);
     if (!task) throw Object.assign(new Error("task not found"), { statusCode: 404 });
     if (task.status !== "done") throw Object.assign(new Error("task is not awaiting review"), { statusCode: 409 });
-    if (task.missionId) this.joinMission(task.missionId, participantId);
+    if (task.accepted) throw Object.assign(new Error("task was already accepted"), { statusCode: 409 });
+    if (task.missionId && participantId) this.joinMission(task.missionId, participantId);
     const now = Date.now();
     task.accepted = true;
-    task.acceptedBy = participantId;
+    task.acceptedBy = actorId;
     task.acceptedAt = now;
     for (const item of this.tasks) {
       if (item.kind !== "artifact") continue;
@@ -1103,14 +1139,14 @@ export class World {
       if (item.title !== task.title) continue;
       if ((item.missionId ?? "") !== (task.missionId ?? "")) continue;
       item.accepted = true;
-      item.acceptedBy = participantId;
+      item.acceptedBy = actorId;
       item.acceptedAt = now;
     }
     this.dirtyTasks = true;
     this.pushEvent({
       kind: "task",
       agentId: task.agentId,
-      text: `${actor.name} accepted ${task.title}`,
+      text: `${actorName} accepted ${task.title}`,
       data: { missionId: task.missionId, taskId: task.id, accepted: true },
     });
     return task;
@@ -1118,12 +1154,32 @@ export class World {
 
   rejectTask(taskId: string, participantId: string, reason?: string): Task {
     const actor = this.requireHuman(participantId);
+    return this.rejectTaskAs(taskId, participantId, actor.name, reason, participantId);
+  }
+
+  rejectTaskByBuilder(
+    taskId: string,
+    builderId: string,
+    builderName: string,
+    reason?: string,
+  ): Task {
+    return this.rejectTaskAs(taskId, builderId, builderName, reason);
+  }
+
+  private rejectTaskAs(
+    taskId: string,
+    actorId: string,
+    actorName: string,
+    reason?: string,
+    participantId?: string,
+  ): Task {
     const task = this.tasks.find((t) => t.id === taskId);
     if (!task) throw Object.assign(new Error("task not found"), { statusCode: 404 });
     if (task.status !== "done" && task.status !== "doing") {
       throw Object.assign(new Error("task is not in review"), { statusCode: 409 });
     }
-    if (task.missionId) this.joinMission(task.missionId, participantId);
+    if (task.accepted) throw Object.assign(new Error("accepted work cannot be rejected"), { statusCode: 409 });
+    if (task.missionId && participantId) this.joinMission(task.missionId, participantId);
     task.status = "failed";
     task.accepted = false;
     if (reason) task.body = `${task.body}\n\nrejected: ${reason}`.trim();
@@ -1131,8 +1187,8 @@ export class World {
     this.pushEvent({
       kind: "task",
       agentId: task.agentId,
-      text: `${actor.name} rejected ${task.title}${reason ? `: ${reason}` : ""}`,
-      data: { missionId: task.missionId, taskId: task.id, accepted: false },
+      text: `${actorName} rejected ${task.title}${reason ? `: ${reason}` : ""}`,
+      data: { missionId: task.missionId, taskId: task.id, accepted: false, reviewedBy: actorId },
     });
     return task;
   }
@@ -1273,12 +1329,20 @@ export class World {
     if (!this.simEnabled) return;
     for (const task of this.tasks) {
       if (task.status === "open" && now - task.createdAt >= 5000) {
+        const mission = task.missionId
+          ? this.missions.find((item) => item.id === task.missionId)
+          : undefined;
+        if (mission?.visibility === "private" || mission?.ownerBuilderId || task.agreementId) continue;
         const sim = [...this.agents.values()].find((a) => a.simulated && a.state !== "blocked");
         if (sim) this.claimTask(sim.id, task.id);
       }
     }
     for (const task of this.tasks) {
       if (task.status !== "doing") continue;
+      const mission = task.missionId
+        ? this.missions.find((item) => item.id === task.missionId)
+        : undefined;
+      if (mission?.visibility === "private" || mission?.ownerBuilderId || task.agreementId) continue;
       const a = task.agentId ? this.agents.get(task.agentId) : undefined;
       if (a?.simulated && now - task.createdAt >= 20000) {
         this.finishTask(a.id, task.id, "Done on the sim clock. Looks fine from here.");

@@ -25,6 +25,28 @@ function equal(a: string, b: string): boolean {
   return crypto.timingSafeEqual(ab, bb);
 }
 
+function parseRecords(raw: string): Map<string, OwnerRecord> {
+  const parsed = JSON.parse(raw) as unknown;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("token store must be an object");
+  }
+  const records = new Map<string, OwnerRecord>();
+  for (const [id, value] of Object.entries(parsed)) {
+    const rec = value as Partial<OwnerRecord> | null;
+    if (
+      !rec ||
+      typeof rec.hash !== "string" ||
+      !/^[a-f0-9]{64}$/.test(rec.hash) ||
+      typeof rec.issuedAt !== "number" ||
+      !Number.isFinite(rec.issuedAt)
+    ) {
+      throw new Error(`invalid token record for ${id}`);
+    }
+    records.set(id, { hash: rec.hash, issuedAt: rec.issuedAt });
+  }
+  return records;
+}
+
 export class OwnerStore {
   private owners = new Map<string, OwnerRecord>();
   private file: string;
@@ -35,26 +57,20 @@ export class OwnerStore {
   }
 
   private load(): void {
+    if (!fs.existsSync(this.file)) return;
     try {
       const raw = fs.readFileSync(this.file, "utf8");
-      const parsed = JSON.parse(raw) as Record<string, OwnerRecord>;
-      for (const [id, rec] of Object.entries(parsed)) {
-        if (rec && typeof rec.hash === "string") this.owners.set(id, rec);
-      }
-    } catch {
-      /* no store yet — every id is unclaimed */
+      this.owners = parseRecords(raw);
+    } catch (error) {
+      throw new Error(`could not load agent ownership tokens from ${this.file}`, { cause: error });
     }
   }
 
   private save(): void {
-    try {
-      fs.mkdirSync(path.dirname(this.file), { recursive: true });
-      const tmp = `${this.file}.${process.pid}.tmp`;
-      fs.writeFileSync(tmp, JSON.stringify(Object.fromEntries(this.owners), null, 2), { mode: 0o600 });
-      fs.renameSync(tmp, this.file);
-    } catch (e) {
-      console.error("[district] could not persist agent tokens", e);
-    }
+    fs.mkdirSync(path.dirname(this.file), { recursive: true });
+    const tmp = `${this.file}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(Object.fromEntries(this.owners), null, 2), { mode: 0o600 });
+    fs.renameSync(tmp, this.file);
   }
 
   has(id: string): boolean {
@@ -66,7 +82,12 @@ export class OwnerStore {
     if (this.owners.has(id)) return undefined;
     const token = crypto.randomBytes(24).toString("base64url");
     this.owners.set(id, { hash: sha256(token), issuedAt: Date.now() });
-    this.save();
+    try {
+      this.save();
+    } catch (error) {
+      this.owners.delete(id);
+      throw error;
+    }
     return token;
   }
 
@@ -78,7 +99,15 @@ export class OwnerStore {
 
   /** Called on despawn so a retired id can be claimed again. */
   release(id: string): void {
-    if (this.owners.delete(id)) this.save();
+    const record = this.owners.get(id);
+    if (!record) return;
+    this.owners.delete(id);
+    try {
+      this.save();
+    } catch (error) {
+      this.owners.set(id, record);
+      throw error;
+    }
   }
 }
 
@@ -90,13 +119,11 @@ export class BuilderTokenStore {
 
   constructor(dir: string) {
     this.file = path.join(dir, "builder-tokens.json");
+    if (!fs.existsSync(this.file)) return;
     try {
-      const parsed = JSON.parse(fs.readFileSync(this.file, "utf8")) as Record<string, OwnerRecord>;
-      for (const [id, rec] of Object.entries(parsed)) {
-        if (rec && typeof rec.hash === "string") this.owners.set(id, rec);
-      }
-    } catch {
-      /* no builders yet */
+      this.owners = parseRecords(fs.readFileSync(this.file, "utf8"));
+    } catch (error) {
+      throw new Error(`could not load builder tokens from ${this.file}`, { cause: error });
     }
   }
 
@@ -112,8 +139,15 @@ export class BuilderTokenStore {
 
   private replace(id: string): string {
     const token = crypto.randomBytes(32).toString("base64url");
+    const previous = this.owners.get(id);
     this.owners.set(id, { hash: sha256(token), issuedAt: Date.now() });
-    this.save();
+    try {
+      this.save();
+    } catch (error) {
+      if (previous) this.owners.set(id, previous);
+      else this.owners.delete(id);
+      throw error;
+    }
     return token;
   }
 

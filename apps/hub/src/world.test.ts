@@ -45,6 +45,31 @@ describe("simulator", () => {
     expect([...world.agents.values()].filter((a) => a.simulated)).toHaveLength(0);
     expect(world.agents.has(live.id)).toBe(true);
   });
+
+  it("never claims private or builder-owned work", () => {
+    const world = new World();
+    world.simEnabled = true;
+    world.upsertAgent({ id: "sim_test", name: "SIM", simulated: true });
+    const privateMission = world.createMission({
+      title: "Private",
+      outcome: "Human work",
+      visibility: "private",
+      ownerBuilderId: "builder_owner",
+      builderIds: ["builder_owner"],
+    });
+    const publicBuilderMission = world.createMission({
+      title: "Builder public",
+      outcome: "Real collaboration",
+      visibility: "public",
+      ownerBuilderId: "builder_owner",
+      builderIds: ["builder_owner"],
+    });
+    const privateTask = world.createTask({ title: "Secret", body: "", missionId: privateMission.id });
+    const builderTask = world.createTask({ title: "Real", body: "", missionId: publicBuilderMission.id });
+    world.tickSimTasks(Date.now() + 10_000);
+    expect(privateTask.status).toBe("open");
+    expect(builderTask.status).toBe("open");
+  });
 });
 
 describe("avenue shard", () => {

@@ -219,13 +219,16 @@ export const shardBodySchema = z.object({
   shard: z.enum(["campus", "avenue"]),
 });
 
+const principalIdSchema = z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/);
+const entityIdSchema = z.string().regex(/^[a-zA-Z0-9_-]{1,100}$/);
+
 export const spawnBodySchema = z.object({
-  id: z.string().optional(),
-  name: z.string().optional(),
-  role: z.string().optional(),
+  id: principalIdSchema.optional(),
+  name: z.string().min(1).max(60).optional(),
+  role: z.string().min(1).max(60).optional(),
   sprite: spriteIdSchema.optional(),
-  orgId: z.string().optional(),
-  color: z.string().optional(),
+  orgId: entityIdSchema.optional(),
+  color: z.string().max(30).optional(),
   simulated: z.boolean().optional(),
   tile: tileSchema.optional(),
 });
@@ -233,15 +236,15 @@ export const spawnBodySchema = z.object({
 export const heartbeatBodySchema = z.object({
   state: agentStateSchema.optional(),
   bubble: z.string().max(60).optional(),
-  currentTool: z.string().optional(),
+  currentTool: z.string().max(100).optional(),
 });
 
 export const goToBodySchema = z
   .object({
-    stationId: z.string().optional(),
+    stationId: entityIdSchema.optional(),
     stationKind: stationKindSchema.optional(),
     buildingKind: buildingKindSchema.optional(),
-    agentName: z.string().optional(),
+    agentName: z.string().max(60).optional(),
     x: z.number().int().optional(),
     y: z.number().int().optional(),
   })
@@ -258,73 +261,73 @@ export const goToBodySchema = z
   );
 
 export const workOnBodySchema = z.object({
-  title: z.string().min(1),
+  title: z.string().min(1).max(140),
   stationKind: stationKindSchema.optional(),
-  stationId: z.string().optional(),
-  toolName: z.string().optional(),
-  seconds: z.number().int().positive().optional(),
-  missionId: z.string().optional(),
+  stationId: entityIdSchema.optional(),
+  toolName: z.string().max(100).optional(),
+  seconds: z.number().int().positive().max(3600).optional(),
+  missionId: entityIdSchema.optional(),
 });
 
 export const toolEventBodySchema = z.object({
-  server: z.string().min(1),
-  tool: z.string().min(1),
-  summary: z.string().min(1),
+  server: z.string().min(1).max(100),
+  tool: z.string().min(1).max(100),
+  summary: z.string().min(1).max(500),
   status: z.enum(["ok", "error"]).optional(),
-  missionId: z.string().optional(),
+  missionId: entityIdSchema.optional(),
 });
 
 export const speakBodySchema = z.object({
   text: z.string().min(1).max(60),
-  toAgentName: z.string().optional(),
-  missionId: z.string().optional(),
+  toAgentName: z.string().max(60).optional(),
+  missionId: entityIdSchema.optional(),
 });
 
 export const handoffBodySchema = z.object({
-  toAgentName: z.string().min(1),
-  note: z.string().min(1),
-  missionId: z.string().optional(),
+  toAgentName: z.string().min(1).max(60),
+  note: z.string().min(1).max(500),
+  missionId: entityIdSchema.optional(),
 });
 
 export const blockedBodySchema = z.object({
-  reason: z.string().min(1),
-  missionId: z.string().optional(),
+  reason: z.string().min(1).max(1000),
+  missionId: entityIdSchema.optional(),
 });
 export const errorBodySchema = z.object({
-  message: z.string().min(1),
-  missionId: z.string().optional(),
+  message: z.string().min(1).max(1000),
+  missionId: entityIdSchema.optional(),
 });
 export const artifactBodySchema = z.object({
-  title: z.string().min(1),
-  body: z.string().min(1),
+  title: z.string().min(1).max(140),
+  body: z.string().min(1).max(10_000),
+  missionId: entityIdSchema.optional(),
 });
-export const claimTaskBodySchema = z.object({ taskId: z.string().min(1) });
+export const claimTaskBodySchema = z.object({ taskId: entityIdSchema });
 export const finishTaskBodySchema = z.object({
-  taskId: z.string().min(1),
-  result: z.string().min(1),
+  taskId: entityIdSchema,
+  result: z.string().min(1).max(10_000),
 });
 export const taskCreateBodySchema = z.object({
-  title: z.string().min(1),
-  body: z.string().default(""),
-  agentId: z.string().optional(),
-  missionId: z.string().optional(),
-  orgId: z.string().optional(),
+  title: z.string().min(1).max(140),
+  body: z.string().max(10_000).default(""),
+  agentId: principalIdSchema.optional(),
+  missionId: entityIdSchema.optional(),
+  orgId: entityIdSchema.optional(),
   helpWanted: z.boolean().optional(),
-  agreementId: z.string().optional(),
 });
 export const missionCreateBodySchema = z.object({
   title: z.string().min(1).max(100),
   outcome: z.string().min(1).max(500),
-  participantId: z.string().optional(),
-  orgId: z.string().optional(),
+  participantId: principalIdSchema.optional(),
+  orgId: entityIdSchema.optional(),
   helpWanted: z.boolean().optional(),
   visibility: z.enum(["public", "private"]).optional(),
 });
 export const taskReviewBodySchema = z.object({
-  participantId: z.string().min(1),
+  participantId: principalIdSchema,
   reason: z.string().min(1).max(280).optional(),
 });
-export const missionJoinBodySchema = z.object({ participantId: z.string().min(1) });
+export const missionJoinBodySchema = z.object({ participantId: principalIdSchema });
 export const missionStatusBodySchema = z.object({ status: missionStatusSchema });
 
 export const builderCreateBodySchema = z.object({
@@ -338,13 +341,13 @@ export const builderCreateBodySchema = z.object({
 export const builderUpdateBodySchema = builderCreateBodySchema
   .omit({ handle: true })
   .partial();
-export const bindAgentBodySchema = z.object({ agentId: z.string().min(1) });
+export const bindAgentBodySchema = z.object({ agentId: principalIdSchema });
 export const fleetEnrollmentCreateBodySchema = z.object({
   expiresInMinutes: z.number().int().min(1).max(60).default(15),
 });
 export const fleetEnrollmentAcceptBodySchema = z.object({ token: z.string().min(20) });
 export const bindVisitorBodySchema = z.object({
-  visitorId: z.string().regex(/^visitor_[a-zA-Z0-9-]{6,50}$/),
+  visitorId: z.string().regex(/^visitor_[a-zA-Z0-9-]{5,50}$/),
 });
 export const inviteCreateBodySchema = z.object({
   expiresInHours: z.number().int().min(1).max(24 * 30).default(72),
@@ -365,8 +368,8 @@ export const grantCreateBodySchema = z
     actions: z.array(z.string().min(1).max(60)).min(1).max(30),
     expiresAt: z.number().int().optional(),
   })
-  .refine((value) => Boolean(value.granteeBuilderId || value.granteeAgentId), {
-    message: "a builder or agent grantee is required",
+  .refine((value) => Boolean(value.granteeBuilderId) !== Boolean(value.granteeAgentId), {
+    message: "provide exactly one builder or agent grantee",
   });
 export const agreementCreateBodySchema = z.object({
   missionId: z.string().min(1),
@@ -411,5 +414,5 @@ export const reportBodySchema = z.object({ text: z.string().min(1).max(280) });
 export const lookQuerySchema = z.object({
   x: z.coerce.number().int(),
   y: z.coerce.number().int(),
-  r: z.coerce.number().int().optional(),
+  r: z.coerce.number().int().min(1).max(50).optional(),
 });

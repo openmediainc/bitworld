@@ -4,6 +4,7 @@ import websocket from "@fastify/websocket";
 import fastifyStatic from "@fastify/static";
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   PERSIST_EVERY_MS,
   SNAPSHOT_EVERY_MS,
@@ -84,7 +85,7 @@ async function main() {
   }
 
   if (SERVE_WEB) {
-    const dist = path.resolve(process.cwd(), "apps/web/dist");
+    const dist = fileURLToPath(new URL("../../web/dist", import.meta.url));
     if (!fs.existsSync(path.join(dist, "index.html"))) {
       throw new Error(`SERVE_WEB=1 but missing ${dist}/index.html — run DISTRICT_BASE=${BASE_PATH || "/"} npm run build -w @district/web`);
     }

@@ -88,11 +88,16 @@ export const HUB = hubHttp;
 export async function postJson(path: string, body: unknown): Promise<unknown> {
   const actingAs = agentIdOf(path, body);
   const token = tokenFor(actingAs);
+  const builderId = localStorage.getItem("district.builderId");
+  const builderToken = localStorage.getItem("district.builderToken");
   const res = await fetch(`${hubHttp()}${path}`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
       ...(token ? { [TOKEN_HEADER]: token } : {}),
+      ...(builderId && builderToken
+        ? { "x-builder-id": builderId, "x-builder-token": builderToken }
+        : {}),
     },
     body: JSON.stringify(body),
   });

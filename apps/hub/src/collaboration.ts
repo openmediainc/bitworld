@@ -51,8 +51,15 @@ function fail(message: string, statusCode = 400): never {
 
 function atomicWrite(file: string, value: unknown): void {
   const tmp = `${file}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(value, null, 2));
+  fs.writeFileSync(tmp, JSON.stringify(value, null, 2), { mode: 0o600 });
   fs.renameSync(tmp, file);
+}
+
+function storedArray<T>(blob: Partial<CollaborationBlob>, key: keyof CollaborationBlob): T[] {
+  const value = blob[key];
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) throw new Error(`${key} must be an array`);
+  return value as T[];
 }
 
 export class CollaborationService {
@@ -66,24 +73,27 @@ export class CollaborationService {
   fleetEnrollments: FleetEnrollment[] = [];
   private readonly file: string;
   private readonly github = new GitHubConnector();
+  private readonly webhookInFlight = new Set<string>();
 
   constructor(
     private readonly world: World,
     private readonly dir: string,
   ) {
     this.file = path.join(dir, "collaboration.json");
-    try {
+    if (fs.existsSync(this.file)) {
+      try {
       const blob = JSON.parse(fs.readFileSync(this.file, "utf8")) as Partial<CollaborationBlob>;
-      this.builders = blob.builders ?? [];
-      this.invites = blob.invites ?? [];
-      this.resources = blob.resources ?? [];
-      this.grants = blob.grants ?? [];
-      this.agreements = blob.agreements ?? [];
-      this.notifications = blob.notifications ?? [];
-      this.audit = blob.audit ?? [];
-      this.fleetEnrollments = blob.fleetEnrollments ?? [];
-    } catch {
-      /* first run */
+      this.builders = storedArray<BuilderProfile>(blob, "builders");
+      this.invites = storedArray<StoredInvite>(blob, "invites");
+      this.resources = storedArray<MissionResource>(blob, "resources");
+      this.grants = storedArray<CapabilityGrant>(blob, "grants");
+      this.agreements = storedArray<WorkAgreement>(blob, "agreements");
+      this.notifications = storedArray<BuilderNotification>(blob, "notifications");
+      this.audit = storedArray<CollaborationAudit>(blob, "audit");
+      this.fleetEnrollments = storedArray<FleetEnrollment>(blob, "fleetEnrollments");
+      } catch (error) {
+        throw new Error(`could not load collaboration state from ${this.file}`, { cause: error });
+      }
     }
     if (process.env.DISTRICT_NOTIFICATION_WEBHOOK) {
       queueMicrotask(() => {
@@ -104,7 +114,7 @@ export class CollaborationService {
       agreements: this.agreements,
       notifications: this.notifications,
       audit: this.audit.slice(-5000),
-      fleetEnrollments: this.fleetEnrollments.slice(-1000),
+      fleetEnrollments: this.fleetEnrollments,
     } satisfies CollaborationBlob);
   }
 
@@ -136,6 +146,14 @@ export class CollaborationService {
     this.record("builder", builder.id, "builder.registered", "builder", builder.id);
     this.persist();
     return builder;
+  }
+
+  rollbackRegistration(builderId: string): void {
+    this.builders = this.builders.filter((builder) => builder.id !== builderId);
+    this.audit = this.audit.filter(
+      (entry) => !(entry.actorId === builderId && entry.action === "builder.registered"),
+    );
+    this.persist();
   }
 
   requireBuilder(id: string): BuilderProfile {
@@ -190,13 +208,20 @@ export class CollaborationService {
 
   createFleetEnrollment(builderId: string, expiresInMinutes = 15) {
     this.requireBuilder(builderId);
+    const now = Date.now();
+    this.fleetEnrollments = this.fleetEnrollments.filter(
+      (item) => !item.usedAt && item.expiresAt > now,
+    );
+    if (this.fleetEnrollments.filter((item) => item.builderId === builderId).length >= 20) {
+      fail("too many active fleet enrollment tokens", 429);
+    }
     const token = crypto.randomBytes(24).toString("base64url");
     const enrollment: FleetEnrollment = {
       id: `fleet_${nanoid(12)}`,
       builderId,
       tokenHash: sha256(token),
-      createdAt: Date.now(),
-      expiresAt: Date.now() + expiresInMinutes * 60 * 1000,
+      createdAt: now,
+      expiresAt: now + expiresInMinutes * 60 * 1000,
     };
     this.fleetEnrollments.push(enrollment);
     this.record("builder", builderId, "fleet.enrollment_created", "fleet_enrollment", enrollment.id);
@@ -240,6 +265,27 @@ export class CollaborationService {
     return this.builders.find((builder) => builder.agentIds.includes(agentId));
   }
 
+  removeAgent(builderId: string, agentId: string): BuilderProfile {
+    const builder = this.requireBuilder(builderId);
+    if (!builder.agentIds.includes(agentId)) fail("agent is not in this builder's fleet", 404);
+    builder.agentIds = builder.agentIds.filter((id) => id !== agentId);
+    builder.updatedAt = Date.now();
+    for (const grant of this.grants) {
+      if (grant.granteeAgentId === agentId && !grant.revokedAt) grant.revokedAt = Date.now();
+    }
+    for (const agreement of this.agreements) {
+      if (
+        agreement.providerAgentId === agentId &&
+        !["approved", "disputed", "cancelled"].includes(agreement.status)
+      ) {
+        agreement.providerAgentId = undefined;
+      }
+    }
+    this.record("builder", builderId, "fleet.agent_removed", "agent", agentId);
+    this.persist();
+    return builder;
+  }
+
   agentWorkspace(agentId: string): AgentWorkspace {
     const builder = this.builderForAgent(agentId);
     if (!builder) fail("agent is not enrolled in a builder fleet", 403);
@@ -260,17 +306,69 @@ export class CollaborationService {
           agreement.providerBuilderId === builder.id &&
           (!agreement.providerAgentId || agreement.providerAgentId === agentId),
       ),
+      events: this.world.events
+        .filter((event) => {
+          const missionId = event.data?.missionId;
+          return typeof missionId === "string" && missionIds.has(missionId);
+        })
+        .slice(-500),
     };
   }
 
-  requireAgentMissionAccess(agentId: string, missionId: string): BuilderProfile {
+  requireAgentMissionAccess(agentId: string, missionId: string): void {
     const mission = this.world.missions.find((item) => item.id === missionId);
     if (!mission) fail("mission not found", 404);
     const builder = this.builderForAgent(agentId);
+    if (mission.participantIds.includes(agentId)) return;
     if (!builder || !mission.builderIds?.includes(builder.id)) {
       fail("agent's builder has not joined this private mission", 403);
     }
-    return builder;
+  }
+
+  resolveAgentActivityMission(agentId: string, requested?: string): string | undefined {
+    if (requested) {
+      const mission = this.world.missions.find((item) => item.id === requested);
+      if (!mission) fail("mission not found", 404);
+      if (mission.ownerBuilderId) {
+        this.requireAgentMissionAccess(agentId, mission.id);
+        if (!mission.participantIds.includes(agentId)) {
+          this.world.joinMission(mission.id, agentId);
+          this.world.persistToDirectory(this.dir);
+        }
+      }
+      return mission.id;
+    }
+    const activePrivate = this.world.missions.filter(
+      (mission) =>
+        mission.visibility === "private" &&
+        mission.status !== "completed" &&
+        (mission.participantIds.includes(agentId) ||
+          this.world.tasks.some(
+            (task) =>
+              task.missionId === mission.id &&
+              task.agentId === agentId &&
+              (task.status === "assigned" || task.status === "doing"),
+          )),
+    );
+    if (activePrivate.length > 1) {
+      fail("missionId is required while the agent has multiple active private missions", 409);
+    }
+    return activePrivate[0]?.id;
+  }
+
+  agentHasActivePrivateMission(agentId: string): boolean {
+    return this.world.missions.some(
+      (mission) =>
+        mission.visibility === "private" &&
+        mission.status !== "completed" &&
+        (mission.participantIds.includes(agentId) ||
+          this.world.tasks.some(
+            (task) =>
+              task.missionId === mission.id &&
+              task.agentId === agentId &&
+              (task.status === "assigned" || task.status === "doing"),
+          )),
+    );
   }
 
   createMission(
@@ -338,6 +436,7 @@ export class CollaborationService {
     inviteeBuilderId?: string,
   ) {
     const mission = this.requireOwner(builderId, missionId);
+    if (mission.status === "completed") fail("cannot invite builders to a completed mission", 409);
     const recent = this.invites.filter(
       (invite) => invite.createdBy === builderId && invite.createdAt > Date.now() - 60 * 60 * 1000,
     );
@@ -403,14 +502,24 @@ export class CollaborationService {
     if (invite.inviteeBuilderId && invite.inviteeBuilderId !== builderId) {
       fail("invite belongs to another builder", 403);
     }
-    if (invite.revokedAt || invite.acceptedAt || invite.expiresAt <= Date.now()) {
+    if (invite.revokedAt || invite.expiresAt <= Date.now()) {
       fail("invite is no longer valid", 409);
     }
     const mission = this.world.missions.find((item) => item.id === invite.missionId);
     if (!mission) fail("mission not found", 404);
-    mission.builderIds = [...new Set([...(mission.builderIds ?? []), builderId])];
+    if (mission.status === "completed") fail("cannot join a completed mission", 409);
+    if (invite.createdBy === builderId) fail("a builder cannot accept their own invite", 409);
+    if (invite.acceptedAt) {
+      if (invite.acceptedBy !== builderId) fail("invite is no longer valid", 409);
+      mission.builderIds = [...new Set([...(mission.builderIds ?? []), builderId])];
+      this.world.dirtyMissions = true;
+      this.world.persistToDirectory(this.dir);
+      return mission;
+    }
     invite.acceptedBy = builderId;
     invite.acceptedAt = Date.now();
+    this.persist();
+    mission.builderIds = [...new Set([...(mission.builderIds ?? []), builderId])];
     this.world.dirtyMissions = true;
     this.notify(builderId, "invite", `Joined ${mission.title}`, mission.id);
     this.notify(invite.createdBy, "invite", `${this.requireBuilder(builderId).displayName} joined ${mission.title}`, mission.id);
@@ -418,6 +527,17 @@ export class CollaborationService {
     this.world.persistToDirectory(this.dir);
     this.persist();
     return mission;
+  }
+
+  revokeInvite(builderId: string, inviteId: string): MissionInvite {
+    const invite = this.invites.find((item) => item.id === inviteId);
+    if (!invite) fail("invite not found", 404);
+    this.requireOwner(builderId, invite.missionId);
+    if (invite.acceptedAt) fail("accepted invites cannot be revoked", 409);
+    invite.revokedAt = invite.revokedAt ?? Date.now();
+    this.record("builder", builderId, "invite.revoked", "invite", invite.id, invite.missionId);
+    this.persist();
+    return this.publicInvite(invite);
   }
 
   addResource(
@@ -430,9 +550,19 @@ export class CollaborationService {
       providerInstallationId?: number;
     },
   ): MissionResource {
-    this.requireOwner(builderId, missionId);
+    const mission = this.requireOwner(builderId, missionId);
+    if (mission.status === "completed") fail("cannot add resources to a completed mission", 409);
     const parsed = new URL(input.url);
     if (!["https:", "http:"].includes(parsed.protocol)) fail("resource URL must use http or https");
+    if (parsed.username || parsed.password) fail("resource URL must not contain credentials");
+    if (input.kind === "github_repo") {
+      const segments = parsed.pathname.split("/").filter(Boolean);
+      if (parsed.hostname !== "github.com" || segments.length < 2) {
+        fail("GitHub resources must point to a github.com owner/repository");
+      }
+    } else if (input.providerInstallationId) {
+      fail("GitHub App installation ids are only valid for GitHub repositories");
+    }
     const resource: MissionResource = {
       id: `resource_${nanoid(12)}`,
       missionId,
@@ -464,10 +594,29 @@ export class CollaborationService {
     },
   ): CapabilityGrant {
     const mission = this.requireOwner(builderId, missionId);
+    if (mission.status === "completed") fail("cannot grant capabilities on a completed mission", 409);
+    if (Boolean(input.granteeBuilderId) === Boolean(input.granteeAgentId)) {
+      fail("provide exactly one builder or agent grantee");
+    }
     const resource = this.resources.find(
       (item) => item.id === input.resourceId && item.missionId === mission.id,
     );
     if (!resource) fail("resource not found in mission", 404);
+    if (input.expiresAt && input.expiresAt <= Date.now()) {
+      fail("capability expiry must be in the future");
+    }
+    if (resource.kind === "github_repo") {
+      const supported = new Set([
+        "issues:read",
+        "issues:comment",
+        "contents:read",
+        "contents:write",
+        "branches:create",
+        "pull_requests:create",
+      ]);
+      const unknown = input.actions.filter((action) => !supported.has(action));
+      if (unknown.length) fail(`unsupported GitHub actions: ${unknown.join(", ")}`);
+    }
     if (input.granteeBuilderId && !mission.builderIds?.includes(input.granteeBuilderId)) {
       fail("grantee builder has not joined the mission", 409);
     }
@@ -528,6 +677,7 @@ export class CollaborationService {
     action: "issues:read" | "issues:comment" | "contents:read" | "contents:write" | "branches:create" | "pull_requests:create",
     input: Record<string, unknown>,
   ): Promise<unknown> {
+    if (!this.world.agents.has(agentId)) fail("agent must be connected to use a capability", 409);
     const resource = this.resources.find((item) => item.id === resourceId);
     if (!resource || resource.kind !== "github_repo") fail("GitHub resource not found", 404);
     const grant = this.activeGrantsForAgent(agentId).find(
@@ -554,7 +704,7 @@ export class CollaborationService {
     }
   }
 
-  notifyBlocked(agentId: string, reason: string): void {
+  notifyBlocked(agentId: string, reason: string, missionId?: string): void {
     const missionIds = new Set(
       this.world.tasks
         .filter(
@@ -565,14 +715,17 @@ export class CollaborationService {
         )
         .map((task) => task.missionId!),
     );
+    if (missionId) missionIds.add(missionId);
+    let notified = false;
     for (const mission of this.world.missions) {
       if (!missionIds.has(mission.id) && !mission.participantIds.includes(agentId)) continue;
       for (const builderId of mission.builderIds ?? []) {
         this.notify(builderId, "blocked", `${agentId} is blocked: ${reason}`, mission.id);
+        notified = true;
       }
       this.record("agent", agentId, "agent.blocked", "mission", mission.id, mission.id, { reason });
     }
-    if (missionIds.size) this.persist();
+    if (notified) this.persist();
   }
 
   createAgreement(
@@ -589,20 +742,39 @@ export class CollaborationService {
     },
   ): WorkAgreement {
     const mission = this.requireMember(builderId, input.missionId);
+    if (mission.status === "completed") fail("cannot create agreements on a completed mission", 409);
     if (input.openToBuilders && mission.visibility === "private") {
       fail("private agreements cannot be listed publicly");
+    }
+    if (
+      input.openToBuilders &&
+      mission.ownerBuilderId &&
+      mission.ownerBuilderId !== builderId
+    ) {
+      fail("only the mission owner can publish an open agreement", 403);
     }
     if (input.openToBuilders && (input.providerBuilderId || input.providerAgentId)) {
       fail("an open agreement cannot already have a provider");
     }
-    if (input.providerBuilderId && !mission.builderIds?.includes(input.providerBuilderId)) {
-      fail("provider must join the mission before receiving an agreement", 409);
-    }
+    let providerBuilderId = input.providerBuilderId;
     if (input.providerAgentId) {
       const owner = this.builderForAgent(input.providerAgentId);
       if (!owner || !mission.builderIds?.includes(owner.id)) {
         fail("provider agent must belong to a mission member", 409);
       }
+      if (providerBuilderId && providerBuilderId !== owner.id) {
+        fail("provider agent does not belong to the selected provider", 409);
+      }
+      providerBuilderId = owner.id;
+    }
+    if (!input.openToBuilders && !providerBuilderId) {
+      fail("an agreement needs a provider or must be open to builders");
+    }
+    if (providerBuilderId && !mission.builderIds?.includes(providerBuilderId)) {
+      fail("provider must join the mission before receiving an agreement", 409);
+    }
+    if (providerBuilderId === builderId) {
+      fail("requester and provider must be different builders", 409);
     }
     if (input.consideration.kind === "external") {
       if (
@@ -612,9 +784,13 @@ export class CollaborationService {
         fail("currency is required when an amount is recorded");
       }
       if (input.consideration.externalReference) {
-        const protocol = new URL(input.consideration.externalReference).protocol;
+        const reference = new URL(input.consideration.externalReference);
+        const protocol = reference.protocol;
         if (!["https:", "http:"].includes(protocol)) {
           fail("external settlement reference must use http or https");
+        }
+        if (reference.username || reference.password) {
+          fail("external settlement reference must not contain credentials");
         }
       }
     }
@@ -624,12 +800,28 @@ export class CollaborationService {
         )
       : undefined;
     if (input.taskId && !linkedTask) fail("task not found in mission", 404);
+    if (linkedTask?.agreementId) fail("task already belongs to an agreement", 409);
+    if (linkedTask && (linkedTask.accepted || !["open", "assigned"].includes(linkedTask.status))) {
+      fail("only open or assigned unreviewed tasks can be linked to an agreement", 409);
+    }
+    if (linkedTask?.agentId) {
+      if (input.openToBuilders) {
+        fail("an open agreement cannot use a task that is already assigned", 409);
+      }
+      const taskAgentBuilder = this.builderForAgent(linkedTask.agentId);
+      if (
+        (input.providerAgentId && input.providerAgentId !== linkedTask.agentId) ||
+        (providerBuilderId && taskAgentBuilder?.id !== providerBuilderId)
+      ) {
+        fail("task assignment does not match the agreement provider", 409);
+      }
+    }
     const agreement: WorkAgreement = {
       id: `agreement_${nanoid(12)}`,
       missionId: mission.id,
       taskId: input.taskId,
       requesterBuilderId: builderId,
-      providerBuilderId: input.providerBuilderId,
+      providerBuilderId,
       providerAgentId: input.providerAgentId,
       openToBuilders: input.openToBuilders || undefined,
       title: input.title,
@@ -685,8 +877,12 @@ export class CollaborationService {
     if (!agreement.openToBuilders || agreement.status !== "proposed" || agreement.providerBuilderId) {
       fail("agreement is not open for claiming", 409);
     }
+    if (agreement.requesterBuilderId === builderId) {
+      fail("requester cannot claim their own agreement", 409);
+    }
     const mission = this.world.missions.find((item) => item.id === agreement.missionId);
     if (!mission || mission.visibility === "private") fail("agreement is not public", 403);
+    if (mission.status === "completed") fail("cannot claim work from a completed mission", 409);
     mission.builderIds = [...new Set([...(mission.builderIds ?? []), builderId])];
     agreement.providerBuilderId = builderId;
     agreement.openToBuilders = false;
@@ -699,6 +895,7 @@ export class CollaborationService {
   }
 
   claimAgreementAsAgent(agentId: string, agreementId: string): WorkAgreement {
+    if (!this.world.agents.has(agentId)) fail("agent must be connected to claim work", 409);
     const builder = this.builderForAgent(agentId);
     if (!builder) fail("agent is not enrolled in a builder fleet", 403);
     const agreement = this.claimAgreement(builder.id, agreementId);
@@ -706,6 +903,18 @@ export class CollaborationService {
     this.record("agent", agentId, "agreement.claimed_for_fleet", "agreement", agreement.id, agreement.missionId);
     this.persist();
     return agreement;
+  }
+
+  requireAgreementAgent(agentId: string, agreementId: string): void {
+    const agreement = this.agreements.find((item) => item.id === agreementId);
+    if (!agreement) fail("agreement not found", 404);
+    const builder = this.builderForAgent(agentId);
+    if (!builder || agreement.providerBuilderId !== builder.id) {
+      fail("task belongs to another agreement provider", 403);
+    }
+    if (agreement.providerAgentId && agreement.providerAgentId !== agentId) {
+      fail("agreement is assigned to another agent", 403);
+    }
   }
 
   transitionAgreement(
@@ -734,7 +943,14 @@ export class CollaborationService {
     if (["accept", "start", "deliver"].includes(action) && !provider) {
       fail("only the provider can do this", 403);
     }
-    if (["approve", "cancel"].includes(action) && !requester) {
+    if (
+      action === "cancel" &&
+      !requester &&
+      !(provider && agreement.status === "proposed")
+    ) {
+      fail("only the requester or proposed provider can cancel", 403);
+    }
+    if (action === "approve" && !requester) {
       fail("only the requester can do this", 403);
     }
     if (action === "dispute" && !requester && !provider) {
@@ -768,12 +984,15 @@ export class CollaborationService {
       agreement.status = "cancelled";
       agreement.cancelledAt = now;
     }
+    this.syncAgreementTask(agreement, action);
     this.record("builder", builderId, `agreement.${action}`, "agreement", agreement.id, agreement.missionId);
+    this.world.persistToDirectory(this.dir);
     this.persist();
     return agreement;
   }
 
   deliverAsAgent(agentId: string, agreementId: string, deliveryNote: string): WorkAgreement {
+    if (!this.world.agents.has(agentId)) fail("agent must be connected to deliver work", 409);
     const agreement = this.agreements.find((item) => item.id === agreementId);
     if (!agreement) fail("agreement not found", 404);
     const builder = this.builderForAgent(agentId);
@@ -790,10 +1009,45 @@ export class CollaborationService {
     agreement.status = "delivered";
     agreement.deliveryNote = deliveryNote;
     agreement.deliveredAt = Date.now();
+    this.syncAgreementTask(agreement, "deliver");
     this.notify(agreement.requesterBuilderId, "delivery", `Delivered: ${agreement.title}`, agreement.missionId, agreement.id);
     this.record("agent", agentId, "agreement.deliver", "agreement", agreement.id, agreement.missionId);
+    this.world.persistToDirectory(this.dir);
     this.persist();
     return agreement;
+  }
+
+  private syncAgreementTask(
+    agreement: WorkAgreement,
+    action: "accept" | "start" | "deliver" | "approve" | "dispute" | "cancel",
+  ): void {
+    if (!agreement.taskId) return;
+    const task = this.world.tasks.find((item) => item.id === agreement.taskId);
+    if (!task) return;
+    if (agreement.providerAgentId) {
+      task.agentId = agreement.providerAgentId;
+      task.agentName = this.world.agents.get(agreement.providerAgentId)?.name ?? task.agentName;
+    }
+    if (action === "accept") task.status = "assigned";
+    if (action === "start") task.status = "doing";
+    if (action === "deliver") {
+      task.status = "done";
+      task.accepted = false;
+      if (agreement.deliveryNote && !task.body.includes(agreement.deliveryNote)) {
+        task.body = `${task.body}\n\n${agreement.deliveryNote}`.trim();
+      }
+    }
+    if (action === "approve") {
+      task.status = "done";
+      task.accepted = true;
+      task.acceptedBy = agreement.requesterBuilderId;
+      task.acceptedAt = agreement.approvedAt;
+    }
+    if (action === "dispute" || action === "cancel") {
+      task.status = "failed";
+      task.accepted = false;
+    }
+    this.world.dirtyTasks = true;
   }
 
   workspace(builderId: string): CollaborationWorkspace {
@@ -846,6 +1100,12 @@ export class CollaborationService {
         .filter((item) => item.builderId === builderId)
         .sort((a, b) => b.createdAt - a.createdAt),
       relationships: this.relationships(builderId),
+      events: this.world.events
+        .filter((event) => {
+          const missionId = event.data?.missionId;
+          return typeof missionId === "string" && memberMissionIds.has(missionId);
+        })
+        .slice(-500),
       audit: this.audit
         .filter(
           (item) =>
@@ -909,6 +1169,16 @@ export class CollaborationService {
     agreementId?: string,
     inviteId?: string,
   ): void {
+    const duplicate = this.notifications.find(
+      (item) =>
+        item.builderId === builderId &&
+        item.kind === kind &&
+        item.text === text &&
+        item.missionId === missionId &&
+        item.agreementId === agreementId &&
+        item.createdAt > Date.now() - 60_000,
+    );
+    if (duplicate) return;
     const notification: BuilderNotification = {
       id: `notification_${nanoid(12)}`,
       builderId,
@@ -920,12 +1190,18 @@ export class CollaborationService {
       createdAt: Date.now(),
     };
     this.notifications.push(notification);
+    const builderNotifications = this.notifications.filter((item) => item.builderId === builderId);
+    if (builderNotifications.length > 2000) {
+      const remove = builderNotifications.find((item) => item.readAt) ?? builderNotifications[0];
+      this.notifications = this.notifications.filter((item) => item.id !== remove.id);
+    }
     this.dispatchNotification(notification);
   }
 
   private dispatchNotification(notification: BuilderNotification): void {
     const webhook = process.env.DISTRICT_NOTIFICATION_WEBHOOK;
-    if (!webhook) return;
+    if (!webhook || notification.webhookDeliveredAt || this.webhookInFlight.has(notification.id)) return;
+    this.webhookInFlight.add(notification.id);
     const builder = this.builders.find((item) => item.id === notification.builderId);
     notification.webhookAttemptedAt = Date.now();
     void fetch(webhook, {
@@ -946,11 +1222,23 @@ export class CollaborationService {
       .then((response) => {
         if (!response.ok) throw new Error(`webhook ${response.status}`);
         notification.webhookDeliveredAt = Date.now();
-        this.persist();
+        this.webhookInFlight.delete(notification.id);
+        try {
+          this.persist();
+        } catch (error) {
+          console.error("[district] could not persist webhook delivery", error);
+        }
       })
       .catch((error) => {
-        this.persist();
+        this.webhookInFlight.delete(notification.id);
+        try {
+          this.persist();
+        } catch (persistError) {
+          console.error("[district] could not persist webhook failure", persistError);
+        }
         console.error("[district] notification webhook failed", error);
+        const retry = setTimeout(() => this.dispatchNotification(notification), 60_000);
+        retry.unref();
       });
   }
 
@@ -974,6 +1262,7 @@ export class CollaborationService {
       missionId,
       data,
     });
+    if (this.audit.length > 5000) this.audit = this.audit.slice(-5000);
   }
 
   private publicInvite(invite: StoredInvite): MissionInvite {

@@ -326,6 +326,7 @@ export type CollaborationWorkspace = {
   opportunities: WorkAgreement[];
   notifications: BuilderNotification[];
   relationships: RelationshipSummary[];
+  events: WorldEvent[];
   audit: CollaborationAudit[];
 };
 
@@ -337,6 +338,7 @@ export type AgentWorkspace = {
   resources: MissionResource[];
   grants: CapabilityGrant[];
   agreements: WorkAgreement[];
+  events: WorldEvent[];
 };
 
 export type BuildingStat = {

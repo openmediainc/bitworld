@@ -141,6 +141,13 @@ describe("agent ownership", () => {
     const res = await app.inject({ method: "POST", url: "/api/visitor/say", payload: { text: "hi" } });
     expect(res.statusCode).toBe(200);
   });
+
+  it("fails closed when the ownership token store is corrupt", () => {
+    const corrupt = fs.mkdtempSync(path.join(os.tmpdir(), "district-corrupt-"));
+    fs.writeFileSync(path.join(corrupt, "tokens.json"), "{not json");
+    expect(() => new OwnerStore(corrupt)).toThrow(/could not load agent ownership tokens/);
+    fs.rmSync(corrupt, { recursive: true, force: true });
+  });
 });
 
 describe("simulator control", () => {

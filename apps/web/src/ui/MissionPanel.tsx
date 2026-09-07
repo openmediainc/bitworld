@@ -13,6 +13,12 @@ export function MissionPanel(props: {
 }) {
   const [creating, setCreating] = useState(false);
   const [addingTask, setAddingTask] = useState(false);
+  const [error, setError] = useState("");
+  const run = (operation: Promise<unknown>) => {
+    void operation
+      .then(() => setError(""))
+      .catch((value) => setError(value instanceof Error ? value.message : String(value)));
+  };
   const mission = props.missions.find((item) => item.id === props.selectedId) ?? null;
   const missionItems = mission ? props.tasks.filter((task) => task.missionId === mission.id) : [];
   const tasks = missionItems.filter((task) => task.kind !== "artifact");
@@ -43,9 +49,11 @@ export function MissionPanel(props: {
           </div>
           <button onClick={() => setCreating(true)}>New</button>
         </div>
+        {error ? <p className="error">{error}</p> : null}
         {creating && (
           <MissionForm
             visitorId={props.visitorId}
+            onError={setError}
             onCreated={(created) => {
               setCreating(false);
               props.onSelect(created.id);
@@ -85,18 +93,21 @@ export function MissionPanel(props: {
   const participantName = (id: string, recorded?: string) =>
     props.agents.find((agent) => agent.id === id)?.name ?? recorded ?? id;
   const setStatus = (status: MissionStatus) =>
-    void postJson(`/api/missions/${mission.id}/status`, { status });
+    run(postJson(`/api/missions/${mission.id}/status`, { status }));
 
   return (
     <div className="mission-panel">
       <div className="mission-heading">
         <button onClick={() => props.onSelect(null)}>← All</button>
         <button
-          onClick={() => void navigator.clipboard.writeText(`${location.origin}${location.pathname}#mission-${mission.id}`)}
+          onClick={() =>
+            run(navigator.clipboard.writeText(`${location.origin}${location.pathname}#mission-${mission.id}`))
+          }
         >
           Copy link
         </button>
       </div>
+      {error ? <p className="error">{error}</p> : null}
       <span className={`mission-status ${mission.status}`}>{mission.status}</span>
       {mission.helpWanted && <span className="mission-status active">open to outside agents</span>}
       <h3>{mission.title}</h3>
@@ -111,7 +122,9 @@ export function MissionPanel(props: {
       {!joined && props.visitorId && (
         <button
           className="mission-primary"
-          onClick={() => void postJson(`/api/missions/${mission.id}/join`, { participantId: props.visitorId })}
+          onClick={() =>
+            run(postJson(`/api/missions/${mission.id}/join`, { participantId: props.visitorId }))
+          }
         >
           Join this mission
         </button>
@@ -151,6 +164,7 @@ export function MissionPanel(props: {
             missionId={mission.id}
             helpWanted={Boolean(mission.helpWanted)}
             agents={props.agents}
+            onError={setError}
             onDone={() => setAddingTask(false)}
           />
         )}
@@ -171,17 +185,17 @@ export function MissionPanel(props: {
                 <div className="mission-actions">
                   <button
                     onClick={() =>
-                      void postJson(`/api/tasks/${task.id}/accept`, { participantId: props.visitorId })
+                      run(postJson(`/api/tasks/${task.id}/accept`, { participantId: props.visitorId }))
                     }
                   >
                     Accept
                   </button>
                   <button
                     onClick={() =>
-                      void postJson(`/api/tasks/${task.id}/reject`, {
+                      run(postJson(`/api/tasks/${task.id}/reject`, {
                         participantId: props.visitorId,
                         reason: "needs another pass",
-                      })
+                      }))
                     }
                   >
                     Reject
@@ -208,7 +222,15 @@ export function MissionPanel(props: {
       <div className="mission-actions">
         {mission.status !== "active" && <button onClick={() => setStatus("active")}>Activate</button>}
         {mission.status !== "blocked" && <button onClick={() => setStatus("blocked")}>Block</button>}
-        {mission.status !== "completed" && <button onClick={() => setStatus("completed")}>Complete</button>}
+        {mission.status !== "completed" && (
+          <button
+            onClick={() => {
+              if (window.confirm(`Complete ${mission.title}?`)) setStatus("completed");
+            }}
+          >
+            Complete
+          </button>
+        )}
       </div>
     </div>
   );
@@ -218,6 +240,7 @@ function MissionForm(props: {
   visitorId?: string;
   onCreated: (mission: Mission) => void;
   onCancel: () => void;
+  onError: (message: string) => void;
 }) {
   const [title, setTitle] = useState("");
   const [outcome, setOutcome] = useState("");
@@ -232,7 +255,9 @@ function MissionForm(props: {
           outcome,
           participantId: props.visitorId,
           helpWanted,
-        }).then((result) => props.onCreated(result as Mission));
+        })
+          .then((result) => props.onCreated(result as Mission))
+          .catch((value) => props.onError(value instanceof Error ? value.message : String(value)));
       }}
     >
       <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Mission title" required />
@@ -259,6 +284,7 @@ function MissionTaskForm(props: {
   helpWanted?: boolean;
   agents: Agent[];
   onDone: () => void;
+  onError: (message: string) => void;
 }) {
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
@@ -275,7 +301,9 @@ function MissionTaskForm(props: {
           missionId: props.missionId,
           agentId: agentId || undefined,
           helpWanted,
-        }).then(props.onDone);
+        })
+          .then(props.onDone)
+          .catch((value) => props.onError(value instanceof Error ? value.message : String(value)));
       }}
     >
       <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Task title" required />

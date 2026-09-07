@@ -4,6 +4,10 @@ import path from "node:path";
 const HUB = process.env.HUB_URL ?? "http://127.0.0.1:4242";
 const API_KEY = process.env.API_KEY ?? "";
 const TOKEN_HEADER = "x-district-token";
+const configuredTimeout = Number(process.env.HUB_TIMEOUT_MS ?? 15_000);
+const REQUEST_TIMEOUT_MS =
+  Number.isFinite(configuredTimeout) && configuredTimeout > 0 ? configuredTimeout : 15_000;
+let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
 
 /**
  * The hub hands out one secret per agent id the first time that id is claimed.
@@ -67,11 +71,23 @@ function captureToken(res: Response): void {
   if (id) writeToken(id, issued);
 }
 
+function responseError(json: unknown, status: number): Error {
+  const body = json as {
+    error?: string;
+    issues?: Array<{ path?: Array<string | number>; message?: string }>;
+  };
+  const details = body.issues
+    ?.map((issue) => `${issue.path?.join(".") || "body"}: ${issue.message ?? "invalid"}`)
+    .join("; ");
+  return new Error([body.error ?? `hub ${status}`, details].filter(Boolean).join(" — "));
+}
+
 export async function hubPost<T>(urlPath: string, body: unknown = {}): Promise<T> {
   const res = await fetch(`${HUB}${urlPath}`, {
     method: "POST",
     headers: headers(),
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
   captureToken(res);
   const text = await res.text();
@@ -82,16 +98,27 @@ export async function hubPost<T>(urlPath: string, body: unknown = {}): Promise<T
     json = { error: text };
   }
   if (!res.ok) {
-    const err = json as { error?: string };
-    throw new Error(err.error ?? `hub ${res.status}`);
+    throw responseError(json, res.status);
   }
   return json as T;
 }
 
 export async function hubGet<T>(urlPath: string): Promise<T> {
-  const res = await fetch(`${HUB}${urlPath}`, { headers: headers() });
-  if (!res.ok) throw new Error(`hub ${res.status}`);
-  return (await res.json()) as T;
+  const res = await fetch(`${HUB}${urlPath}`, {
+    headers: headers(),
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  });
+  const text = await res.text();
+  let json: unknown = text;
+  try {
+    json = text ? JSON.parse(text) : {};
+  } catch {
+    /* preserve text */
+  }
+  if (!res.ok) {
+    throw responseError(json, res.status);
+  }
+  return json as T;
 }
 
 export function agentIdPath(): string {
@@ -114,4 +141,18 @@ export function writeAgentId(id: string): void {
   } catch {
     /* ignore */
   }
+}
+
+export function ensureHeartbeat(): void {
+  if (heartbeatTimer) return;
+  heartbeatTimer = setInterval(() => {
+    const id = readAgentId();
+    if (!id) return;
+    void hubPost(`/api/agents/${id}/heartbeat`, {}).catch(() => undefined);
+  }, 10_000);
+}
+
+export function stopHeartbeat(): void {
+  if (heartbeatTimer) clearInterval(heartbeatTimer);
+  heartbeatTimer = undefined;
 }

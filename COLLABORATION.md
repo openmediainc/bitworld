@@ -29,7 +29,8 @@ Private missions are absent from:
 - public MCP task listing.
 
 An expiring, single-use invite adds another builder. A connected browser explicitly
-binds its visitor id to its builder before it can join or review private work. Agents
+binds its visitor id for campus presence, while the builder credential—not a visible
+visitor id—authorizes human review. Mission owners can revoke pending invites. Agents
 may claim private tasks only when their fleet owner belongs to that mission.
 
 For private tool activity, agents pass `missionId` to `tool_event`. The public avatar

@@ -26,9 +26,16 @@ export function SidePanel(props: {
   const visitors = props.agents.filter((a) => a.sprite === "visitor");
   return (
     <aside className="side">
-      <div className="tabs">
+      <div className="tabs" role="tablist" aria-label="District panels">
         {(["network", "missions", "help", "agents", "stations", "tasks", "connect"] as const).map((t) => (
-          <button key={t} className={props.tab === t ? "on" : ""} onClick={() => props.onTab(t)}>
+          <button
+            type="button"
+            key={t}
+            className={props.tab === t ? "on" : ""}
+            aria-selected={props.tab === t}
+            role="tab"
+            onClick={() => props.onTab(t)}
+          >
             {t}
           </button>
         ))}
@@ -66,13 +73,13 @@ export function SidePanel(props: {
               </div>
             )}
             {visitors.map((a) => (
-              <div key={a.id} className="row" onClick={() => props.onSelectAgent(a.id)}>
+              <button type="button" key={a.id} className="row" onClick={() => props.onSelectAgent(a.id)}>
                 <span className="dot" style={{ background: a.color }} />
                 <div>
                   {a.name}
                   <div className="meta">Human · {a.state}</div>
                 </div>
-              </div>
+              </button>
             ))}
           </>
         )}
@@ -81,7 +88,8 @@ export function SidePanel(props: {
             props.agents
               .filter((a) => a.sprite !== "visitor")
               .map((a) => (
-              <div
+              <button
+                type="button"
                 key={a.id}
                 className={`row ${props.selectedId === a.id ? "on" : ""}`}
                 onClick={() => props.onSelectAgent(a.id)}
@@ -95,7 +103,7 @@ export function SidePanel(props: {
                     {a.currentTool ? ` · ${a.currentTool}` : ""}
                   </div>
                 </div>
-              </div>
+              </button>
             ))
           ) : (
             <div className="empty">Nobody on campus. Either they despawned or you turned the simulator off for the quiet.</div>
@@ -106,15 +114,16 @@ export function SidePanel(props: {
             if (!sts.length) return null;
             return (
               <div key={b.id}>
-                <div
+                <button
+                type="button"
                 className="meta"
                 style={{ padding: "8px 6px 2px", cursor: "pointer" }}
                 onClick={() => props.onSelectBuilding?.(b.id)}
               >
                   {b.name}
-                </div>
+                </button>
                 {sts.map((s) => (
-                  <div key={s.id} className="row" onClick={() => props.onSelectStation?.(s.id)}>
+                  <button type="button" key={s.id} className="row" onClick={() => props.onSelectStation?.(s.id)}>
                     <div>
                       {s.name}
                       <div className="meta">
@@ -122,7 +131,7 @@ export function SidePanel(props: {
                         {s.mcpServerName ? ` · ${s.mcpServerName}` : ""}
                       </div>
                     </div>
-                  </div>
+                  </button>
                 ))}
               </div>
             );

@@ -29,7 +29,7 @@ export function backupDir(): string {
 
 function atomicWrite(file: string, json: unknown): void {
   const tmp = `${file}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(json, null, 2));
+  fs.writeFileSync(tmp, JSON.stringify(json, null, 2), { mode: 0o600 });
   fs.renameSync(tmp, file);
 }
 
@@ -120,7 +120,7 @@ export function loadAll(dir: string): PersistBlob | null {
       buildingVisits: world.buildingVisits ?? {},
       founders: world.founders ?? {},
     };
-  } catch {
-    return null;
+  } catch (error) {
+    throw new Error(`could not load District state from ${dir}`, { cause: error });
   }
 }

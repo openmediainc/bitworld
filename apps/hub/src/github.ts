@@ -39,6 +39,19 @@ function repository(resource: MissionResource): { owner: string; repo: string } 
   return { owner, repo };
 }
 
+function contentPath(input: Record<string, unknown>): string {
+  const value = string(input, "path")!;
+  const segments = value.split("/");
+  if (
+    value.startsWith("/") ||
+    value.length > 1000 ||
+    segments.some((segment) => !segment || segment === "." || segment === "..")
+  ) {
+    fail("path must be a relative repository path without dot segments");
+  }
+  return segments.map(encodeURIComponent).join("/");
+}
+
 function base64url(value: string | Buffer): string {
   return Buffer.from(value).toString("base64url");
 }
@@ -72,17 +85,20 @@ export class GitHubConnector {
       endpoint = `/repos/${owner}/${repo}/issues/${integer(input, "number")}/comments`;
       body = { body: string(input, "body") };
     } else if (action === "contents:read") {
-      const filePath = string(input, "path")!;
-      endpoint = `/repos/${owner}/${repo}/contents/${filePath.split("/").map(encodeURIComponent).join("/")}`;
+      endpoint = `/repos/${owner}/${repo}/contents/${contentPath(input)}`;
       const ref = string(input, "ref", false);
       if (ref) endpoint += `?ref=${encodeURIComponent(ref)}`;
     } else if (action === "contents:write") {
       method = "PUT";
-      const filePath = string(input, "path")!;
-      endpoint = `/repos/${owner}/${repo}/contents/${filePath.split("/").map(encodeURIComponent).join("/")}`;
+      endpoint = `/repos/${owner}/${repo}/contents/${contentPath(input)}`;
+      const content = input.contentBase64;
+      if (typeof content !== "string") fail("contentBase64 is required");
+      if (!/^[A-Za-z0-9+/]*={0,2}$/.test(content) || content.length % 4 !== 0) {
+        fail("contentBase64 must be valid base64");
+      }
       body = {
         message: string(input, "message"),
-        content: string(input, "contentBase64"),
+        content,
         branch: string(input, "branch"),
         ...(string(input, "sha", false) ? { sha: string(input, "sha", false) } : {}),
       };

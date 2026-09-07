@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { backupData } from "./persist.js";
+import { backupData, loadAll } from "./persist.js";
 
 const roots: string[] = [];
 
@@ -42,5 +42,11 @@ describe("campus backups", () => {
     const complete = fs.readdirSync(backups).filter((name) => name.startsWith("district-data-"));
     expect(complete).toHaveLength(2);
     expect(complete).not.toContain("district-data-20260101T000000Z");
+  });
+
+  it("fails closed instead of overwriting corrupt state", () => {
+    const data = tempDir("data");
+    fs.writeFileSync(path.join(data, "world.json"), "{not json");
+    expect(() => loadAll(data)).toThrow(/could not load District state/);
   });
 });

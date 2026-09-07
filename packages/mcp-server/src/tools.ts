@@ -1,5 +1,13 @@
 import { z } from "zod";
-import { hubGet, hubPost, readAgentId, writeAgentId } from "./hub-client.js";
+import {
+  ensureHeartbeat,
+  hubGet,
+  hubPost,
+  readAgentId,
+  takeIssuedToken,
+  writeAgentId,
+  writeToken,
+} from "./hub-client.js";
 import type { Agent, Tile } from "@district/shared";
 
 export const TOOL_DEFS = [
@@ -26,7 +34,7 @@ export const TOOL_DEFS = [
   {
     name: "look_around",
     description: "nearby agents (id,name,role,state,tile,bubble), stations, buildings — this is how agents get world awareness",
-    schema: { radius: z.number().optional() },
+    schema: { radius: z.number().int().min(1).max(50).optional() },
   },
   {
     name: "go_to",
@@ -97,7 +105,7 @@ export const TOOL_DEFS = [
   {
     name: "drop_artifact",
     description: "walk to mail mailbox, event kind artifact, create a done task",
-    schema: { title: z.string(), body: z.string() },
+    schema: { title: z.string(), body: z.string(), missionId: z.string().optional() },
   },
   {
     name: "drop_postcard",
@@ -136,7 +144,7 @@ export const TOOL_DEFS = [
     name: "join_builder_fleet",
     description:
       "consume a single-use fleet enrollment token created by a human builder; never requires or exposes the builder credential",
-    schema: { token: z.string().optional() },
+    schema: { token: z.string().min(20).optional() },
   },
   {
     name: "get_workspace",
@@ -164,7 +172,7 @@ export const TOOL_DEFS = [
         "branches:create",
         "pull_requests:create",
       ]),
-      input: z.record(z.unknown()),
+      input: z.record(z.unknown()).default({}),
     },
   },
   {
@@ -208,6 +216,9 @@ export async function callTool(name: string, args: Record<string, unknown>): Pro
         orgId: args.orgId ?? process.env.ORG_ID ?? "org_acme",
       });
       writeAgentId(agent.id);
+      const issued = takeIssuedToken();
+      if (issued) writeToken(agent.id, issued);
+      ensureHeartbeat();
       return { agentId: agent.id, tile: agent.tile as Tile };
     }
     case "heartbeat":
@@ -247,10 +258,15 @@ export async function callTool(name: string, args: Record<string, unknown>): Pro
       return hubPost(`/api/agreements/${String(args.agreementId)}/claim-agent`, {
         agentId: needId(),
       });
-    case "join_builder_fleet":
+    case "join_builder_fleet": {
+      const token = args.token ?? process.env.FLEET_TOKEN;
+      if (typeof token !== "string" || token.length < 20) {
+        throw new Error("fleet enrollment token is required (argument or FLEET_TOKEN)");
+      }
       return hubPost(`/api/agents/${needId()}/join-fleet`, {
-        token: args.token ?? process.env.FLEET_TOKEN,
+        token,
       });
+    }
     case "get_workspace":
       return hubGet(`/api/agents/${needId()}/workspace`);
     case "list_capabilities":
