@@ -4,8 +4,6 @@
 <dict>
   <key>Label</key>
   <string>digital.openmedia.district</string>
-  <key>WorkingDirectory</key>
-  <string>/Users/q-mac</string>
   <key>ProgramArguments</key>
   <array>
     <string>/opt/homebrew/bin/node</string>
