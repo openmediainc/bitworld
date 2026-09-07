@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import Phaser from "phaser";
-import type { Snapshot } from "@district/shared";
+import type { BuilderProfile, Snapshot } from "@district/shared";
 import { DistrictScene, gameConfig } from "./phaser/DistrictScene";
 import { TopBar } from "./ui/TopBar";
 import { SidePanel, type SideTab } from "./ui/SidePanel";
@@ -10,6 +10,7 @@ import { TaskComposer } from "./ui/TaskComposer";
 import { connectWs, hubHttp, postJson, type ConnState, type WsApi } from "./net/ws";
 import { SearchPalette } from "./ui/SearchPalette";
 import { Tutorial } from "./ui/Tutorial";
+import type { MissionFocus } from "./ui/NetworkPanel";
 
 function emptySnap(): Snapshot {
   return {
@@ -70,6 +71,8 @@ export function App() {
   const name = useRef(visitorName());
   const stableVisitorId = useRef(visitorIdentity());
   const [visitorSessionId, setVisitorSessionId] = useState<string | undefined>(undefined);
+  const [builders, setBuilders] = useState<BuilderProfile[]>([]);
+  const [missionFocus, setMissionFocus] = useState<MissionFocus | null>(null);
   const appliedHash = useRef("");
   const [hashVersion, setHashVersion] = useState(0);
 
@@ -146,6 +149,17 @@ export function App() {
       .then((r) => r.json())
       .then((info: { apiKeyRequired?: boolean }) => setApiKeyRequired(Boolean(info.apiKeyRequired)))
       .catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    const load = () =>
+      void fetch(`${hubHttp()}/api/builders`)
+        .then((response) => response.json())
+        .then((profiles: BuilderProfile[]) => setBuilders(profiles))
+        .catch(() => undefined);
+    load();
+    const timer = window.setInterval(load, 30_000);
+    return () => window.clearInterval(timer);
   }, []);
 
   useEffect(() => {
@@ -279,6 +293,34 @@ export function App() {
   const working = snap.agents.filter((a) => a.state === "working").length;
   const blocked = snap.agents.filter((a) => a.state === "blocked").length;
   const ticker = snap.events.filter((e) => e.kind !== "heartbeat").at(-1) ?? null;
+  const agentBuilder = agent
+    ? builders.find((builder) => builder.agentIds.includes(agent.id))
+    : undefined;
+  const acceptedProofs = agent
+    ? snap.tasks.filter((task) => task.agentId === agent.id && task.accepted).length
+    : 0;
+  const reviewTasks = agent
+    ? snap.tasks.filter(
+        (task) =>
+          task.agentId === agent.id &&
+          task.helpWanted &&
+          task.status === "done" &&
+          !task.accepted &&
+          task.kind !== "artifact",
+      )
+    : [];
+  const agentMission = agent
+    ? snap.missions.find(
+        (mission) =>
+          mission.participantIds.includes(agent.id) ||
+          snap.tasks.some(
+            (task) =>
+              task.agentId === agent.id &&
+              task.missionId === mission.id &&
+              (task.status === "assigned" || task.status === "doing"),
+          ),
+      )
+    : undefined;
 
   return (
     <div className="app">
@@ -319,6 +361,19 @@ export function App() {
       />
       <div className="main">
         <div id="game" ref={hostRef} />
+        {missionFocus ? (
+          <div className="mission-focus-banner">
+            <span><strong>FOCUS</strong> {missionFocus.title}</span>
+            <button
+              onClick={() => {
+                setMissionFocus(null);
+                sceneRef.current?.setMissionFocus(null);
+              }}
+            >
+              Show campus
+            </button>
+          </div>
+        ) : null}
         <SidePanel
           tab={tab}
           onTab={(t) => {
@@ -337,6 +392,22 @@ export function App() {
             setSelectedMission(id);
             setTab("missions");
             location.hash = id ? `mission-${id}` : "";
+            const mission = snap.missions.find((item) => item.id === id);
+            const agentIds = mission
+              ? [
+                  ...new Set([
+                    ...mission.participantIds,
+                    ...snap.tasks
+                      .filter((task) => task.missionId === mission.id && task.agentId)
+                      .map((task) => task.agentId!),
+                  ]),
+                ]
+              : [];
+            const focus = mission
+              ? { id: mission.id, title: mission.title, agentIds }
+              : null;
+            setMissionFocus(focus);
+            sceneRef.current?.setMissionFocus(focus?.agentIds ?? null);
           }}
           selectedId={selectedAgent}
           onSelectAgent={(id) => {
@@ -360,6 +431,10 @@ export function App() {
             const b = snap.buildings.find((x) => x.id === id);
             if (b) location.hash = b.kind;
           }}
+          onFocusMission={(focus) => {
+            setMissionFocus(focus);
+            sceneRef.current?.setMissionFocus(focus?.agentIds ?? null);
+          }}
         />
       </div>
       <EventLog events={snap.events} agents={snap.agents} />
@@ -372,6 +447,15 @@ export function App() {
           stat={stat}
           events={snap.events}
           agents={snap.agents}
+          builder={agentBuilder}
+          acceptedProofs={acceptedProofs}
+          reviewTasks={reviewTasks}
+          visitorId={visitorSessionId}
+          missionTitle={
+            agent?.bubble === "Working privately" || agent?.bubble === "Private mission work"
+              ? "Private mission"
+              : agentMission?.title
+          }
           apiKeyRequired={apiKeyRequired}
           sharePath={plot ? `/b/${plot.slug}` : building ? `/b/${building.kind}` : undefined}
           onAssign={() => setComposer(true)}

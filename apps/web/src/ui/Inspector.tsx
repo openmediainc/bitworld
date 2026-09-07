@@ -1,4 +1,14 @@
-import type { Agent, AvenuePlot, Building, BuildingStat, Station, WorldEvent } from "@district/shared";
+import { useState } from "react";
+import type {
+  Agent,
+  AvenuePlot,
+  BuilderProfile,
+  Building,
+  BuildingStat,
+  Station,
+  Task,
+  WorldEvent,
+} from "@district/shared";
 import { postJson } from "../net/ws";
 import { owns } from "../net/token";
 
@@ -16,7 +26,13 @@ export function Inspector(props: {
   onShout?: () => void;
   apiKeyRequired?: boolean;
   sharePath?: string;
+  builder?: BuilderProfile;
+  acceptedProofs?: number;
+  reviewTasks?: Task[];
+  visitorId?: string;
+  missionTitle?: string;
 }) {
+  const [reviewMessage, setReviewMessage] = useState("");
   if (props.plot && !props.agent && !props.station && !props.building) {
     const p = props.plot;
     return (
@@ -137,6 +153,11 @@ export function Inspector(props: {
         {a.role} · {a.state} · tile {a.tile.x},{a.tile.y}
         {a.currentTool ? ` · ${a.currentTool}` : ""}
       </div>
+      <div className="proof-strip">
+        <span>{props.builder ? `@${props.builder.handle}` : "independent agent"}</span>
+        <span>{props.missionTitle ?? "No active mission"}</span>
+        <span>{props.acceptedProofs ?? 0} accepted</span>
+      </div>
       <div className="list" style={{ maxHeight: 160 }}>
         {evs.map((e) => (
           <div key={e.id} className="line">
@@ -144,6 +165,51 @@ export function Inspector(props: {
           </div>
         ))}
       </div>
+      {props.reviewTasks?.length ? (
+        <section className="agent-review">
+          <strong>Waiting on your decision</strong>
+          {props.reviewTasks.map((task) => (
+            <div className="mission-task" key={task.id}>
+              <div>
+                {task.title}
+                {task.body ? <div className="meta">{task.body.slice(0, 180)}</div> : null}
+              </div>
+              {props.visitorId ? (
+                <div className="mission-actions">
+                  <button
+                    onClick={() =>
+                      void postJson(`/api/tasks/${task.id}/accept`, {
+                        participantId: props.visitorId,
+                      })
+                        .then(() => setReviewMessage("Accepted — this now counts as public proof."))
+                        .catch((error) =>
+                          setReviewMessage(error instanceof Error ? error.message : String(error)),
+                        )
+                    }
+                  >
+                    Accept proof
+                  </button>
+                  <button
+                    onClick={() =>
+                      void postJson(`/api/tasks/${task.id}/reject`, {
+                        participantId: props.visitorId,
+                        reason: "needs another pass",
+                      })
+                        .then(() => setReviewMessage("Returned for another pass."))
+                        .catch((error) =>
+                          setReviewMessage(error instanceof Error ? error.message : String(error)),
+                        )
+                    }
+                  >
+                    Return
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          ))}
+          {reviewMessage ? <div className="meta">{reviewMessage}</div> : null}
+        </section>
+      ) : null}
       <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
         <button onClick={props.onAssign}>Assign task</button>
         <button

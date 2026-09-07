@@ -2,7 +2,7 @@ import type { Agent, Building, Mission, Station, Task, WorldEvent } from "@distr
 import { ConnectPanel } from "./ConnectPanel";
 import { HelpBoard } from "./HelpBoard";
 import { MissionPanel } from "./MissionPanel";
-import { NetworkPanel } from "./NetworkPanel";
+import { NetworkPanel, type MissionFocus } from "./NetworkPanel";
 
 export type SideTab = "network" | "missions" | "help" | "agents" | "stations" | "tasks" | "connect";
 
@@ -22,6 +22,7 @@ export function SidePanel(props: {
   onSelectAgent: (id: string) => void;
   onSelectStation?: (id: string) => void;
   onSelectBuilding?: (id: string) => void;
+  onFocusMission?: (focus: MissionFocus | null) => void;
 }) {
   const visitors = props.agents.filter((a) => a.sprite === "visitor");
   return (
@@ -41,7 +42,9 @@ export function SidePanel(props: {
         ))}
       </div>
       <div className="list">
-        {props.tab === "network" && <NetworkPanel visitorId={props.visitorId} />}
+        {props.tab === "network" && (
+          <NetworkPanel visitorId={props.visitorId} onFocusMission={props.onFocusMission} />
+        )}
         {props.tab === "missions" && (
           <MissionPanel
             missions={props.missions}

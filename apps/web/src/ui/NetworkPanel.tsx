@@ -14,8 +14,41 @@ import {
   restoreBuilder,
   rotateBuilderToken,
 } from "../net/builder";
+import { hubHttp } from "../net/ws";
 
-export function NetworkPanel(props: { visitorId?: string }) {
+function agentConnectionConfig(
+  token: string,
+  builder: { displayName: string; handle: string },
+): string {
+  return JSON.stringify(
+    {
+      mcpServers: {
+        district: {
+          command: "sh",
+          args: [
+            "-lc",
+            'if [ ! -d "$HOME/.district/.git" ]; then git clone --depth 1 https://github.com/openmediainc/bitworld.git "$HOME/.district" || exit 1; fi; cd "$HOME/.district" || exit 1; if [ ! -d node_modules ]; then npm install --silent || exit 1; fi; exec npm run mcp',
+          ],
+          env: {
+            HUB_URL: hubHttp(),
+            FLEET_TOKEN: token,
+            AGENT_NAME: `${builder.displayName} Agent`,
+            AGENT_ROLE: `Builder for @${builder.handle}`,
+          },
+        },
+      },
+    },
+    null,
+    2,
+  );
+}
+
+export type MissionFocus = { id: string; title: string; agentIds: string[] };
+
+export function NetworkPanel(props: {
+  visitorId?: string;
+  onFocusMission?: (focus: MissionFocus | null) => void;
+}) {
   const [workspace, setWorkspace] = useState<CollaborationWorkspace | null>(null);
   const [selectedId, setSelectedId] = useState<string>();
   const [error, setError] = useState("");
@@ -86,6 +119,22 @@ export function NetworkPanel(props: { visitorId?: string }) {
   const builderMissions = workspace.missions.filter((item) =>
     item.builderIds?.includes(workspace.builder.id),
   );
+  const focusMission = (item: Mission) => {
+    const builderIds = new Set(item.builderIds ?? []);
+    const agentIds = [
+      ...new Set([
+        ...item.participantIds,
+        ...workspace.builders
+          .filter((builder) => builderIds.has(builder.id))
+          .flatMap((builder) => builder.agentIds),
+      ]),
+    ];
+    props.onFocusMission?.({ id: item.id, title: item.title, agentIds });
+  };
+  const acceptedProofs = (agentIds: string[]) =>
+    workspace.tasks.filter(
+      (task) => task.accepted && task.agentId && agentIds.includes(task.agentId),
+    ).length;
 
   const run = async (operation: () => Promise<unknown>) => {
     try {
@@ -243,7 +292,8 @@ export function NetworkPanel(props: { visitorId?: string }) {
             <div>
               {builder.displayName} <span className="meta">@{builder.handle}</span>
               <div className="meta">
-                {builder.skills.join(", ") || "No skills listed"} · {builder.availability ?? "available"}
+                {builder.skills.join(", ") || "No skills listed"} · {builder.availability ?? "available"} ·{" "}
+                {acceptedProofs(builder.agentIds)} accepted
               </div>
               {builder.collaborationTerms ? <div className="meta">{builder.collaborationTerms}</div> : null}
             </div>
@@ -267,7 +317,13 @@ export function NetworkPanel(props: { visitorId?: string }) {
         {workspace.directory.length <= 1 ? <div className="empty">You are the first builder here.</div> : null}
       </section>
 
-      <MissionCreate onRun={run} onCreated={(created) => setSelectedId(created.id)} />
+      <MissionCreate
+        onRun={run}
+        onCreated={(created) => {
+          setSelectedId(created.id);
+          focusMission(created);
+        }}
+      />
       <form
         className="mission-form"
         onSubmit={(event) => {
@@ -293,7 +349,10 @@ export function NetworkPanel(props: { visitorId?: string }) {
           <button
             className={`mission-card linkish ${selectedId === item.id ? "on" : ""}`}
             key={item.id}
-            onClick={() => setSelectedId(item.id)}
+            onClick={() => {
+              setSelectedId(item.id);
+              focusMission(item);
+            }}
           >
             <span>{item.title}</span>
             <span className="meta">
@@ -375,9 +434,9 @@ export function NetworkPanel(props: { visitorId?: string }) {
           </div>
         ))}
         <p className="meta">
-          Create a 15-minute, single-use enrollment token and give only that token to an
-          agent. The agent calls <code>join_builder_fleet</code>. Never give an agent your
-          builder token.
+          One copy connects an MCP agent and enrolls it into your fleet. Paste the generated
+          block into <code>.cursor/mcp.json</code> or your MCP client config. The single-use
+          token expires in 15 minutes. Never give an agent your builder token.
         </p>
         <button
           onClick={() => {
@@ -386,14 +445,14 @@ export function NetworkPanel(props: { visitorId?: string }) {
               { expiresInMinutes: 15 },
             )
               .then((enrollment) => {
-                const value = `FLEET_TOKEN=${enrollment.token}`;
-                setSecret({ label: "Single-use fleet token · expires in 15 minutes", value });
+                const value = agentConnectionConfig(enrollment.token, workspace.builder);
+                setSecret({ label: "Copy-ready MCP connection · expires in 15 minutes", value });
                 return navigator.clipboard.writeText(value).catch(() => undefined);
               })
               .catch((value) => setError(value instanceof Error ? value.message : String(value)));
           }}
         >
-          Enroll an agent
+          Copy agent connection
         </button>
         <button
           onClick={() => {

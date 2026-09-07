@@ -54,6 +54,7 @@ export class DistrictScene extends Phaser.Scene {
   sprites = new Map<string, SpritePack>();
   selectedId: string | null = null;
   followId: string | null = null;
+  focusedAgentIds: Set<string> | null = null;
   buildingHash = "";
   viewShard: "campus" | "avenue" = "campus";
   roofLabels: Phaser.GameObjects.Image[] = [];
@@ -222,6 +223,25 @@ export class DistrictScene extends Phaser.Scene {
     }
   }
 
+  setMissionFocus(agentIds: string[] | null): void {
+    this.focusedAgentIds = agentIds?.length ? new Set(agentIds) : null;
+    for (const [id, pack] of this.sprites) this.applyFocus(id, pack);
+    if (agentIds?.length) this.panToAgent(agentIds[0]);
+  }
+
+  private applyFocus(id: string, pack: SpritePack): void {
+    const focused = !this.focusedAgentIds || this.focusedAgentIds.has(id);
+    const alpha = focused ? 1 : 0.22;
+    pack.img.setAlpha(alpha);
+    pack.label.setAlpha(alpha);
+    pack.icon.setAlpha(focused ? 1 : 0.15);
+    pack.bubble.setAlpha(focused ? 1 : 0.12);
+    pack.heat.setAlpha(alpha);
+    if (focused && this.focusedAgentIds) {
+      pack.heat.setStrokeStyle(2, 0x6ecf7a, 0.95);
+    }
+  }
+
   setViewShard(shard: "campus" | "avenue"): void {
     this.viewShard = shard;
     this.buildingHash = "";
@@ -366,10 +386,23 @@ export class DistrictScene extends Phaser.Scene {
     pack.icon.setPosition(px, py - 14);
     if (a.state === "blocked") pack.icon.setText("?").setColor("#c45c26").setVisible(true);
     else if (a.state === "error") pack.icon.setText("!").setColor("#c43c3c").setVisible(true);
+    else if (a.state === "working") {
+      const tool = (a.currentTool ?? "").toLowerCase();
+      const cue = tool.includes("test")
+        ? "T"
+        : tool.includes("read") || tool.includes("search") || tool.includes("grep")
+          ? "R"
+          : tool.includes("github") || tool.includes("git")
+            ? "G"
+            : "•";
+      pack.icon.setText(cue).setColor("#6ecf7a").setVisible(true);
+    }
     else pack.icon.setVisible(false);
     pack.heat.setStrokeStyle(1, 0xc43c3c, (a.tokenSpendHint ?? 0) / 100);
     pack.img.setData("agentId", a.id);
     pack.img.setData("state", a.state);
+    pack.img.setData("tool", a.currentTool ?? "");
+    this.applyFocus(a.id, pack);
   }
 
   agentAt(tile: Tile): Agent | undefined {
@@ -458,6 +491,13 @@ export class DistrictScene extends Phaser.Scene {
       const baseY = Number(pack.img.getData("baseY") ?? pack.img.y);
       const bob = state === "idle" && Math.floor(t / 280) % 2 === 0 ? -1 : 0;
       pack.img.y = baseY + bob;
+      if (state === "blocked") {
+        const pulse = 0.75 + Math.sin(t / 140) * 0.25;
+        const focusAlpha = !this.focusedAgentIds || this.focusedAgentIds.has(id) ? 1 : 0.15;
+        pack.icon.setScale(1 + pulse * 0.25).setAlpha(pulse * focusAlpha);
+      } else {
+        pack.icon.setScale(1);
+      }
       if (state === "sleeping" && this.zAcc > 700) {
         const z = this.add.text(pack.img.x + 6, pack.img.y - 10, "z", { fontSize: "8px", color: "#c9d4e0" }).setDepth(13);
         this.tweens.add({
