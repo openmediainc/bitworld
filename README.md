@@ -134,14 +134,14 @@ Shareable building pages: [http://127.0.0.1:4242/b/hq](http://127.0.0.1:4242/b/h
 
 ## Tailnet (Qimi)
 
-GitHub is the source of truth (`openmediainc/bitworld`). Qimi clones to `/Volumes/MacMiniExtended/Local Server/District` as `ai-bitcoiner` and pulls `main`.
+GitHub is the source of truth (`openmediainc/bitworld`). Qimi clones to `~/Library/Application Support/District/src` and pulls `main`.
 
 Tailscale **Serve, not Funnel**. Path is `/district` so we do not steal Paperclip `/assets` or `/api`.
 
 - Campus: https://q-ai.tail735569.ts.net/district/
-- After a push: `ssh q-mac@q-ai 'bash "/Volumes/MacMiniExtended/Local Server/District/scripts/qimi-deploy.sh"'`
+- After a push: `ssh q-mac@q-ai 'bash "$HOME/Library/Application Support/District/src/scripts/qimi-deploy.sh"'`
 
-Hub env on the Mini: `SERVE_WEB=1 HOST=127.0.0.1 PORT=4242` (empty `BASE_PATH` — Tailscale Serve strips `/district` before the hub). The launchd runtime and data live under `~/Library/Application Support/District` so macOS does not block the background service from an external volume. Vite still builds with `DISTRICT_BASE=/district/` so the browser requests `/district/assets/...` and does not collide with Paperclip `/assets`.
+Hub env on the Mini: `SERVE_WEB=1 HOST=127.0.0.1 PORT=4242` (empty `BASE_PATH` — Tailscale Serve strips `/district` before the hub). Source, runtime, and data all live under `~/Library/Application Support/District`: the external volume drops reads under launchd, which left the service unable to start. Vite still builds with `DISTRICT_BASE=/district/` so the browser requests `/district/assets/...` and does not collide with Paperclip `/assets`.
 
 ## v1 limits
 
