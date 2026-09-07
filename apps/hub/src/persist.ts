@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { Agent, Org, Building, Station, Task, WorldEvent } from "@district/shared";
+import type { Agent, Org, Building, Mission, Station, Task, WorldEvent } from "@district/shared";
 
 export type PersistBlob = {
   org: Org;
@@ -9,6 +9,7 @@ export type PersistBlob = {
   stations: Station[];
   agents: Agent[];
   tasks: Task[];
+  missions?: Mission[];
   events: WorldEvent[];
   simEnabled: boolean;
   campusVisits?: number;
@@ -50,6 +51,7 @@ export function persistAll(dir: string, blob: PersistBlob): void {
   );
   atomicWrite(path.join(dir, "events.json"), blob.events);
   atomicWrite(path.join(dir, "tasks.json"), blob.tasks);
+  atomicWrite(path.join(dir, "missions.json"), blob.missions ?? []);
 }
 
 export function backupData(sourceDir: string, destinationDir = backupDir(), keep = 30): string {
@@ -102,6 +104,9 @@ export function loadAll(dir: string): PersistBlob | null {
     const tasks = fs.existsSync(path.join(dir, "tasks.json"))
       ? (JSON.parse(fs.readFileSync(path.join(dir, "tasks.json"), "utf8")) as Task[])
       : [];
+    const missions = fs.existsSync(path.join(dir, "missions.json"))
+      ? (JSON.parse(fs.readFileSync(path.join(dir, "missions.json"), "utf8")) as Mission[])
+      : [];
     return {
       org: world.org,
       buildings: world.buildings,
@@ -109,6 +114,7 @@ export function loadAll(dir: string): PersistBlob | null {
       agents: agents.filter((a) => a.sprite !== "visitor"),
       events,
       tasks,
+      missions,
       simEnabled: world.simEnabled ?? true,
       campusVisits: world.campusVisits ?? 0,
       buildingVisits: world.buildingVisits ?? {},

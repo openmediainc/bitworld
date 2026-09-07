@@ -24,6 +24,8 @@ import {
   type AvenuePlot,
   type Building,
   type BuildingStat,
+  type Mission,
+  type MissionStatus,
   type Org,
   type Snapshot,
   type SpriteId,
@@ -74,12 +76,14 @@ export class World {
   stations: Station[];
   agents = new Map<string, Agent>();
   tasks: Task[] = [];
+  missions: Mission[] = [];
   events: WorldEvent[] = [];
   simEnabled = true;
   grid: boolean[][];
   dirtyAgents = new Set<string>();
   dirtyEvents: WorldEvent[] = [];
   dirtyTasks = false;
+  dirtyMissions = false;
   runtimes = new Map<string, Runtime>();
   rng: () => number;
   campusVisits = 0;
@@ -96,6 +100,7 @@ export class World {
     this.stations = blob?.stations?.length ? blob.stations : seed.stations;
     this.simEnabled = process.env.DISTRICT_SIM === "1" ? (blob?.simEnabled ?? false) : false;
     this.tasks = blob?.tasks ?? [];
+    this.missions = blob?.missions ?? [];
     this.events = blob?.events ?? [];
     this.campusVisits = blob?.campusVisits ?? 0;
     this.buildingVisits = new Map(Object.entries(blob?.buildingVisits ?? {}));
@@ -130,6 +135,7 @@ export class World {
       stations: this.stations,
       agents: [...this.agents.values()],
       tasks: this.tasks,
+      missions: this.missions,
       events: this.events,
       simEnabled: this.simEnabled,
       campusVisits: this.campusVisits,
@@ -146,6 +152,7 @@ export class World {
       stations: this.stations,
       agents: [...this.agents.values()],
       tasks: this.tasks,
+      missions: this.missions,
       events: this.events.slice(-40),
       presence: {
         online: [...this.agents.values()].filter((a) => a.sprite === "visitor" || a.state !== "sleeping").length,
@@ -196,6 +203,7 @@ export class World {
         id: nanoid(10),
         orgId: a.orgId,
         agentId: a.id,
+        kind: "artifact",
         title: "Campus postcard",
         body,
         status: "done",
@@ -328,18 +336,20 @@ export class World {
     return { building: b, stats, occupants, stations: this.stations.filter((s) => s.buildingId === b.id), events };
   }
 
-  takeDelta(): { agents?: Agent[]; events?: WorldEvent[]; tasks?: Task[] } | null {
-    if (!this.dirtyAgents.size && !this.dirtyEvents.length && !this.dirtyTasks) return null;
-    const payload: { agents?: Agent[]; events?: WorldEvent[]; tasks?: Task[] } = {};
+  takeDelta(): { agents?: Agent[]; events?: WorldEvent[]; tasks?: Task[]; missions?: Mission[] } | null {
+    if (!this.dirtyAgents.size && !this.dirtyEvents.length && !this.dirtyTasks && !this.dirtyMissions) return null;
+    const payload: { agents?: Agent[]; events?: WorldEvent[]; tasks?: Task[]; missions?: Mission[] } = {};
     if (this.dirtyAgents.size) {
       payload.agents = [...this.dirtyAgents].map((id) => this.agents.get(id)).filter((a): a is Agent => Boolean(a));
       // include despawns as absence — client should replace listed agents; also send full agents if any despawned
     }
     if (this.dirtyEvents.length) payload.events = this.dirtyEvents.slice();
     if (this.dirtyTasks) payload.tasks = this.tasks;
+    if (this.dirtyMissions) payload.missions = this.missions;
     this.dirtyAgents.clear();
     this.dirtyEvents = [];
     this.dirtyTasks = false;
+    this.dirtyMissions = false;
     return payload;
   }
 
@@ -651,14 +661,23 @@ export class World {
     return a;
   }
 
-  dropArtifact(id: string, title: string, body: string): Agent {
+  dropArtifact(id: string, title: string, body: string, missionId?: string): Agent {
     const a = this.require(id);
+    const activeMissionId =
+      missionId ??
+      this.missions.find(
+        (mission) =>
+          mission.participantIds.includes(id) &&
+          (mission.status === "active" || mission.status === "blocked"),
+      )?.id;
     const mail = stationByKind(this.stations, "mailbox");
     if (mail) this.goTo(id, { tile: { ...mail.tile }, stationId: mail.id });
     const task: Task = {
       id: nanoid(10),
       orgId: a.orgId,
       agentId: a.id,
+      missionId: activeMissionId,
+      kind: "artifact",
       title,
       body,
       status: "done",
@@ -666,7 +685,12 @@ export class World {
     };
     this.tasks.push(task);
     this.dirtyTasks = true;
-    this.pushEvent({ kind: "artifact", agentId: id, text: `${a.name} dropped ${title}` });
+    this.pushEvent({
+      kind: "artifact",
+      agentId: id,
+      text: `${a.name} dropped ${title}`,
+      data: activeMissionId ? { missionId: activeMissionId } : undefined,
+    });
     return a;
   }
 
@@ -674,11 +698,75 @@ export class World {
     return this.tasks.filter((t) => t.status === "open" || t.status === "assigned");
   }
 
-  createTask(body: { title: string; body: string; agentId?: string; orgId?: string }): Task {
+  createMission(body: { title: string; outcome: string; participantId?: string; orgId?: string }): Mission {
+    const mission: Mission = {
+      id: nanoid(10),
+      orgId: body.orgId ?? this.org.id,
+      title: body.title,
+      outcome: body.outcome,
+      status: "active",
+      participantIds: body.participantId ? [body.participantId] : [],
+      createdAt: Date.now(),
+    };
+    this.missions.push(mission);
+    this.dirtyMissions = true;
+    this.pushEvent({
+      kind: "task",
+      text: `mission started: ${mission.title}`,
+      data: { missionId: mission.id, missionStatus: mission.status },
+    });
+    return mission;
+  }
+
+  requireMission(id: string): Mission {
+    const mission = this.missions.find((item) => item.id === id);
+    if (!mission) throw Object.assign(new Error("mission not found"), { statusCode: 404 });
+    return mission;
+  }
+
+  joinMission(id: string, participantId: string): Mission {
+    const mission = this.requireMission(id);
+    if (!mission.participantIds.includes(participantId)) {
+      mission.participantIds.push(participantId);
+      this.dirtyMissions = true;
+      const participant = this.agents.get(participantId);
+      this.pushEvent({
+        kind: "task",
+        agentId: participantId,
+        text: `${participant?.name ?? "Participant"} joined ${mission.title}`,
+        data: { missionId: mission.id },
+      });
+    }
+    return mission;
+  }
+
+  setMissionStatus(id: string, status: MissionStatus): Mission {
+    const mission = this.requireMission(id);
+    mission.status = status;
+    mission.completedAt = status === "completed" ? Date.now() : undefined;
+    this.dirtyMissions = true;
+    this.pushEvent({
+      kind: "task",
+      text: `mission ${status}: ${mission.title}`,
+      data: { missionId: mission.id, missionStatus: status },
+    });
+    return mission;
+  }
+
+  createTask(body: {
+    title: string;
+    body: string;
+    agentId?: string;
+    missionId?: string;
+    orgId?: string;
+  }): Task {
+    if (body.missionId) this.requireMission(body.missionId);
     const task: Task = {
       id: nanoid(10),
       orgId: body.orgId ?? this.org.id,
       agentId: body.agentId,
+      missionId: body.missionId,
+      kind: "task",
       title: body.title,
       body: body.body,
       status: body.agentId ? "assigned" : "open",
@@ -686,10 +774,12 @@ export class World {
     };
     this.tasks.push(task);
     this.dirtyTasks = true;
+    if (body.missionId && body.agentId) this.joinMission(body.missionId, body.agentId);
     this.pushEvent({
       kind: "task",
       agentId: body.agentId,
       text: `task: ${body.title}`,
+      data: body.missionId ? { missionId: body.missionId, taskId: task.id } : { taskId: task.id },
     });
     return task;
   }
@@ -701,9 +791,15 @@ export class World {
     task.agentId = agentId;
     task.status = "doing";
     this.dirtyTasks = true;
+    if (task.missionId) this.joinMission(task.missionId, agentId);
     const desk = stationByKind(this.stations, "desk") ?? stationByKind(this.stations, "front_desk");
     if (desk) this.workOn(agentId, { title: task.title, stationId: desk.id, seconds: 15 });
-    this.pushEvent({ kind: "task", agentId, text: `${a.name} claimed ${task.title}` });
+    this.pushEvent({
+      kind: "task",
+      agentId,
+      text: `${a.name} claimed ${task.title}`,
+      data: task.missionId ? { missionId: task.missionId, taskId: task.id } : { taskId: task.id },
+    });
     return task;
   }
 
@@ -714,8 +810,13 @@ export class World {
     task.status = "done";
     task.body = `${task.body}\n\n${result}`.trim();
     this.dirtyTasks = true;
-    this.dropArtifact(agentId, task.title, result);
-    this.pushEvent({ kind: "task", agentId, text: `${a.name} finished ${task.title}` });
+    this.dropArtifact(agentId, task.title, result, task.missionId);
+    this.pushEvent({
+      kind: "task",
+      agentId,
+      text: `${a.name} finished ${task.title}`,
+      data: task.missionId ? { missionId: task.missionId, taskId: task.id } : { taskId: task.id },
+    });
     return task;
   }
 

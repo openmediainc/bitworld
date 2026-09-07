@@ -148,10 +148,25 @@ export type Task = {
   id: string;
   orgId: string;
   agentId?: string;
+  missionId?: string;
+  kind?: "task" | "artifact";
   title: string;
   body: string;
   status: "open" | "assigned" | "doing" | "done" | "failed";
   createdAt: number;
+};
+
+export type MissionStatus = "planning" | "active" | "blocked" | "completed";
+
+export type Mission = {
+  id: string;
+  orgId: string;
+  title: string;
+  outcome: string;
+  status: MissionStatus;
+  participantIds: string[];
+  createdAt: number;
+  completedAt?: number;
 };
 
 export type BuildingStat = {
@@ -174,6 +189,7 @@ export type Snapshot = {
   stations: Station[];
   agents: Agent[];
   tasks: Task[];
+  missions: Mission[];
   events: WorldEvent[];
   presence?: Presence;
   buildingStats?: BuildingStat[];
@@ -182,10 +198,12 @@ export type Snapshot = {
 
 export type WsHello = { type: "hello"; role: "viewer" | "visitor"; name?: string };
 export type WsMove = { type: "move"; x: number; y: number };
+export type WsSay = { type: "say"; text: string };
 export type WsPing = { type: "ping" };
-export type ClientMessage = WsHello | WsMove | WsPing;
+export type ClientMessage = WsHello | WsMove | WsSay | WsPing;
 
 export type ServerMessage =
   | { type: "snapshot"; payload: Snapshot }
-  | { type: "delta"; payload: { agents?: Agent[]; events?: WorldEvent[]; tasks?: Task[] } }
+  | { type: "session"; payload: { visitorId?: string } }
+  | { type: "delta"; payload: { agents?: Agent[]; events?: WorldEvent[]; tasks?: Task[]; missions?: Mission[] } }
   | { type: "pong" };

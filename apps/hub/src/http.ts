@@ -10,6 +10,9 @@ import {
   handoffBodySchema,
   heartbeatBodySchema,
   lookQuerySchema,
+  missionCreateBodySchema,
+  missionJoinBodySchema,
+  missionStatusBodySchema,
   speakBodySchema,
   spawnBodySchema,
   shardBodySchema,
@@ -194,6 +197,13 @@ export function registerHttp(app: FastifyInstance, world: World, owners: OwnerSt
     return world.events.slice(-limit);
   });
   app.get("/api/tasks", async () => world.tasks);
+  app.get("/api/missions", async () => world.missions);
+  app.get("/api/missions/:id", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const mission = world.missions.find((item) => item.id === id);
+    if (!mission) return reply.code(404).send({ error: "mission not found" });
+    return mission;
+  });
   app.get("/api/world/look", async (req, reply) => {
     try {
       const q = lookQuerySchema.parse(req.query);
@@ -208,6 +218,26 @@ export function registerHttp(app: FastifyInstance, world: World, owners: OwnerSt
     const body = await parse(taskCreateBodySchema, req, reply);
     if (!body) return;
     return world.createTask({ ...body, body: body.body ?? "" });
+  });
+
+  app.post("/api/missions", async (req, reply) => {
+    const body = await parse(missionCreateBodySchema, req, reply);
+    if (!body) return;
+    return world.createMission(body);
+  });
+
+  app.post("/api/missions/:id/join", async (req, reply) => {
+    const body = await parse(missionJoinBodySchema, req, reply);
+    if (!body) return;
+    const { id } = req.params as { id: string };
+    return world.joinMission(id, body.participantId);
+  });
+
+  app.post("/api/missions/:id/status", async (req, reply) => {
+    const body = await parse(missionStatusBodySchema, req, reply);
+    if (!body) return;
+    const { id } = req.params as { id: string };
+    return world.setMissionStatus(id, body.status);
   });
 
   app.post("/api/sim/start", async (req, reply) => {

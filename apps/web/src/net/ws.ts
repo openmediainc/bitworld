@@ -1,5 +1,5 @@
 import { agentIdOf, rememberToken, TOKEN_HEADER, tokenFor } from "./token";
-import type { Agent, ServerMessage, Snapshot, Task, WorldEvent } from "@district/shared";
+import type { Agent, Mission, ServerMessage, Snapshot, Task, WorldEvent } from "@district/shared";
 
 export type ConnState = "green" | "yellow" | "red";
 
@@ -28,7 +28,8 @@ export type WsApi = {
 
 export function connectWs(handlers: {
   onSnapshot: (s: Snapshot) => void;
-  onDelta: (d: { agents?: Agent[]; events?: WorldEvent[]; tasks?: Task[] }) => void;
+  onDelta: (d: { agents?: Agent[]; events?: WorldEvent[]; tasks?: Task[]; missions?: Mission[] }) => void;
+  onSession?: (visitorId?: string) => void;
   onStatus: (s: ConnState) => void;
   name?: string;
 }): WsApi {
@@ -48,6 +49,7 @@ export function connectWs(handlers: {
     };
     ws.onmessage = (ev) => {
       const msg = JSON.parse(String(ev.data)) as ServerMessage;
+      if (msg.type === "session") handlers.onSession?.(msg.payload.visitorId);
       if (msg.type === "snapshot") handlers.onSnapshot(msg.payload);
       if (msg.type === "delta") handlers.onDelta(msg.payload);
     };

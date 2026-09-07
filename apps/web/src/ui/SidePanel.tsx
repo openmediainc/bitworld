@@ -1,13 +1,19 @@
-import type { Agent, Building, Station, Task } from "@district/shared";
+import type { Agent, Building, Mission, Station, Task, WorldEvent } from "@district/shared";
 import { ConnectPanel } from "./ConnectPanel";
+import { MissionPanel } from "./MissionPanel";
 
 export function SidePanel(props: {
-  tab: "agents" | "stations" | "tasks" | "connect";
-  onTab: (t: "agents" | "stations" | "tasks" | "connect") => void;
+  tab: "missions" | "agents" | "stations" | "tasks" | "connect";
+  onTab: (t: "missions" | "agents" | "stations" | "tasks" | "connect") => void;
   agents: Agent[];
   stations: Station[];
   buildings: Building[];
   tasks: Task[];
+  missions: Mission[];
+  events: WorldEvent[];
+  visitorId?: string;
+  selectedMissionId?: string | null;
+  onSelectMission: (id: string | null) => void;
   selectedId?: string | null;
   onSelectAgent: (id: string) => void;
   onSelectStation?: (id: string) => void;
@@ -17,13 +23,24 @@ export function SidePanel(props: {
   return (
     <aside className="side">
       <div className="tabs">
-        {(["agents", "stations", "tasks", "connect"] as const).map((t) => (
+        {(["missions", "agents", "stations", "tasks", "connect"] as const).map((t) => (
           <button key={t} className={props.tab === t ? "on" : ""} onClick={() => props.onTab(t)}>
             {t}
           </button>
         ))}
       </div>
       <div className="list">
+        {props.tab === "missions" && (
+          <MissionPanel
+            missions={props.missions}
+            tasks={props.tasks}
+            events={props.events}
+            agents={props.agents}
+            visitorId={props.visitorId}
+            selectedId={props.selectedMissionId}
+            onSelect={props.onSelectMission}
+          />
+        )}
         {props.tab === "agents" && (
           <>
             {visitors.length > 0 && (

@@ -48,11 +48,15 @@ export function registerWs(app: FastifyInstance, world: World, clients: Set<(msg
           });
           world.bumpCampusVisit();
         }
+        send({ type: "session", payload: { visitorId: visitorId ?? undefined } });
         send({ type: "snapshot", payload: world.snapshot() });
         return;
       }
       if (msg.type === "move" && visitorId) {
         world.goTo(visitorId, { tile: { x: msg.x, y: msg.y } });
+      }
+      if (msg.type === "say" && visitorId) {
+        world.speak(visitorId, msg.text.slice(0, 60));
       }
     });
 

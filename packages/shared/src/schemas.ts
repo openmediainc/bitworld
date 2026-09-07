@@ -158,10 +158,24 @@ export const taskSchema = z.object({
   id: z.string(),
   orgId: z.string(),
   agentId: z.string().optional(),
+  missionId: z.string().optional(),
+  kind: z.enum(["task", "artifact"]).optional(),
   title: z.string(),
   body: z.string(),
   status: z.enum(["open", "assigned", "doing", "done", "failed"]),
   createdAt: z.number(),
+});
+
+export const missionStatusSchema = z.enum(["planning", "active", "blocked", "completed"]);
+export const missionSchema = z.object({
+  id: z.string(),
+  orgId: z.string(),
+  title: z.string(),
+  outcome: z.string(),
+  status: missionStatusSchema,
+  participantIds: z.array(z.string()),
+  createdAt: z.number(),
+  completedAt: z.number().optional(),
 });
 
 export const buildingStatSchema = z.object({
@@ -184,6 +198,7 @@ export const snapshotSchema = z.object({
   stations: z.array(stationSchema),
   agents: z.array(agentSchema),
   tasks: z.array(taskSchema),
+  missions: z.array(missionSchema).default([]),
   events: z.array(worldEventSchema),
   presence: presenceSchema.optional(),
   buildingStats: z.array(buildingStatSchema).optional(),
@@ -272,8 +287,17 @@ export const taskCreateBodySchema = z.object({
   title: z.string().min(1),
   body: z.string().default(""),
   agentId: z.string().optional(),
+  missionId: z.string().optional(),
   orgId: z.string().optional(),
 });
+export const missionCreateBodySchema = z.object({
+  title: z.string().min(1).max(100),
+  outcome: z.string().min(1).max(500),
+  participantId: z.string().optional(),
+  orgId: z.string().optional(),
+});
+export const missionJoinBodySchema = z.object({ participantId: z.string().min(1) });
+export const missionStatusBodySchema = z.object({ status: missionStatusSchema });
 export const visitorMoveBodySchema = z.object({
   x: z.number().int(),
   y: z.number().int(),

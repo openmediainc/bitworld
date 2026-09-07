@@ -19,8 +19,17 @@ function emptySnap(): Snapshot {
     stations: [],
     agents: [],
     tasks: [],
+    missions: [],
     events: [],
   };
+}
+
+function visitorName(): string {
+  const saved = localStorage.getItem("district.visitorName");
+  if (saved) return saved;
+  const generated = `Human ${Math.floor(100 + Math.random() * 900)}`;
+  localStorage.setItem("district.visitorName", generated);
+  return generated;
 }
 
 export function App() {
@@ -30,7 +39,8 @@ export function App() {
   const wsRef = useRef<WsApi | null>(null);
   const [snap, setSnap] = useState<Snapshot>(emptySnap());
   const [conn, setConn] = useState<ConnState>("yellow");
-  const [tab, setTab] = useState<"agents" | "stations" | "tasks" | "connect">("agents");
+  const [tab, setTab] = useState<"missions" | "agents" | "stations" | "tasks" | "connect">("missions");
+  const [selectedMission, setSelectedMission] = useState<string | null>(null);
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
   const [selectedStation, setSelectedStation] = useState<string | null>(null);
   const [composer, setComposer] = useState(false);
@@ -49,6 +59,8 @@ export function App() {
   const [rules, setRules] = useState(false);
   const [selectedPlot, setSelectedPlot] = useState<string | null>(null);
   const visitorId = useRef<string | undefined>(undefined);
+  const name = useRef(visitorName());
+  const [visitorSessionId, setVisitorSessionId] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -68,6 +80,14 @@ export function App() {
     if (!snap.buildings.length) return;
     const h = decodeURIComponent(location.hash.replace(/^#/, ""));
     if (!h) return;
+    if (h.startsWith("mission-")) {
+      const missionId = h.slice("mission-".length);
+      if (snap.missions.some((mission) => mission.id === missionId)) {
+        setTab("missions");
+        setSelectedMission(missionId);
+      }
+      return;
+    }
     if (h === "avenue") {
       setShard("avenue");
       sceneRef.current?.setViewShard("avenue");
@@ -93,7 +113,7 @@ export function App() {
       const s = snap.stations.find((x) => x.mcpServerName === slug || x.id === slug || x.name.toLowerCase().includes(slug));
       if (s) setSelectedStation(s.id);
     }
-  }, [snap.buildings, snap.stations]);
+  }, [snap.buildings, snap.stations, snap.missions]);
 
   useEffect(() => {
     void fetch(`${hubHttp()}/api/info`)
@@ -174,13 +194,17 @@ export function App() {
   useEffect(() => {
     const api = connectWs({
       onStatus: setConn,
+      name: name.current,
+      onSession: (id) => {
+        visitorId.current = id;
+        setVisitorSessionId(id);
+        if (sceneRef.current) sceneRef.current.hooks.visitorId = id;
+      },
       onSnapshot: (s) => {
         setSnap(s);
-        const vis = s.agents.find((a) => a.sprite === "visitor");
-        visitorId.current = vis?.id;
-      sceneRef.current?.applySnapshot(s);
+        sceneRef.current?.applySnapshot(s);
         if (sceneRef.current) {
-          sceneRef.current.hooks.visitorId = vis?.id;
+          sceneRef.current.hooks.visitorId = visitorId.current;
           if (location.hash.replace(/^#/, "") === "avenue") sceneRef.current.setViewShard("avenue");
         }
       },
@@ -206,6 +230,7 @@ export function App() {
             agents,
             events: d.events ? [...prev.events, ...d.events].slice(-40) : prev.events,
             tasks: d.tasks ?? prev.tasks,
+            missions: d.missions ?? prev.missions,
           };
           if (d.agents) sceneRef.current?.applyAgents(d.agents);
           return next;
@@ -271,6 +296,14 @@ export function App() {
           stations={snap.stations}
           buildings={snap.buildings}
           tasks={snap.tasks}
+          missions={snap.missions}
+          events={snap.events}
+          visitorId={visitorSessionId}
+          selectedMissionId={selectedMission}
+          onSelectMission={(id) => {
+            setSelectedMission(id);
+            location.hash = id ? `mission-${id}` : "";
+          }}
           selectedId={selectedAgent}
           onSelectAgent={(id) => {
             setSelectedAgent(id);
@@ -318,7 +351,7 @@ export function App() {
           onAsk={
             agent
               ? (text) => {
-                  void postJson("/api/visitor/say", { text: `to ${agent.name}: ${text}` });
+                  wsRef.current?.send({ type: "say", text: `to ${agent.name}: ${text}` });
                   setAskWait("Waiting for agent…");
                   window.setTimeout(() => setAskWait("They’ll see this in their event stream."), 3000);
                 }
@@ -340,7 +373,7 @@ export function App() {
           onSubmit={(e) => {
             e.preventDefault();
             const input = (e.target as HTMLFormElement).elements.namedItem("shout") as HTMLInputElement;
-            if (input.value) void postJson("/api/visitor/say", { text: input.value });
+            if (input.value) wsRef.current?.send({ type: "say", text: input.value });
             setShout(false);
           }}
         >
