@@ -1,0 +1,8 @@
+node_modules
+dist
+*.tsbuildinfo
+.DS_Store
+.district-agent-id
+data/*.json
+!data/.gitkeep
+apps/web/dist

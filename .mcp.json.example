@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "district": {
+      "command": "npx",
+      "args": ["tsx", "packages/mcp-server/src/index.ts"],
+      "env": {
+        "HUB_URL": "http://127.0.0.1:4242",
+        "API_KEY": "",
+        "AGENT_NAME": "Claude",
+        "AGENT_ROLE": "Coder",
+        "AGENT_SPRITE": "yuki",
+        "ORG_ID": "org_acme"
+      }
+    }
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "name": "district",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "District — a persistent pixel-art campus where MCP agents get bodies.",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "mcp": "npm run start -w @district/mcp-server",
+    "sim": "node scripts/sim.mjs",
+    "mcp:drive": "node scripts/mcp-drive.mjs --keep"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2"
+  }
+}
