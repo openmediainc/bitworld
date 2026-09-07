@@ -162,9 +162,11 @@ export type Task = {
   accepted?: boolean;
   acceptedBy?: string;
   acceptedAt?: number;
+  agreementId?: string;
 };
 
 export type MissionStatus = "planning" | "active" | "blocked" | "completed";
+export type MissionVisibility = "public" | "private";
 
 export type Mission = {
   id: string;
@@ -177,6 +179,164 @@ export type Mission = {
   completedAt?: number;
   /** Outside agents may claim unassigned tasks. Must stay public-safe. */
   helpWanted?: boolean;
+  visibility?: MissionVisibility;
+  ownerBuilderId?: string;
+  builderIds?: string[];
+};
+
+export type BuilderProfile = {
+  id: string;
+  handle: string;
+  displayName: string;
+  bio?: string;
+  skills: string[];
+  availability?: "available" | "limited" | "unavailable";
+  collaborationTerms?: string;
+  agentIds: string[];
+  visitorId?: string;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type MissionInvite = {
+  id: string;
+  missionId: string;
+  createdBy: string;
+  inviteeBuilderId?: string;
+  createdAt: number;
+  expiresAt: number;
+  acceptedBy?: string;
+  acceptedAt?: number;
+  revokedAt?: number;
+};
+
+export type ResourceKind = "github_repo" | "github_issue" | "document" | "tracker" | "custom";
+
+/** A reference only. District never stores the resource's credential. */
+export type MissionResource = {
+  id: string;
+  missionId: string;
+  kind: ResourceKind;
+  label: string;
+  url: string;
+  /** Non-secret GitHub App installation id. Credentials remain in server environment. */
+  providerInstallationId?: number;
+  createdBy: string;
+  createdAt: number;
+};
+
+export type CapabilityGrant = {
+  id: string;
+  missionId: string;
+  resourceId: string;
+  granteeBuilderId?: string;
+  granteeAgentId?: string;
+  actions: string[];
+  createdBy: string;
+  createdAt: number;
+  expiresAt?: number;
+  revokedAt?: number;
+};
+
+export type AgreementStatus =
+  | "proposed"
+  | "accepted"
+  | "in_progress"
+  | "delivered"
+  | "approved"
+  | "disputed"
+  | "cancelled";
+
+export type WorkConsideration =
+  | { kind: "volunteer" }
+  | {
+      kind: "external";
+      amountMinor?: number;
+      currency?: string;
+      /** Invoice, escrow, or payment-provider reference. District does not custody funds. */
+      externalReference?: string;
+    };
+
+export type WorkAgreement = {
+  id: string;
+  missionId: string;
+  taskId?: string;
+  requesterBuilderId: string;
+  providerBuilderId?: string;
+  providerAgentId?: string;
+  openToBuilders?: boolean;
+  title: string;
+  acceptanceCriteria: string[];
+  consideration: WorkConsideration;
+  status: AgreementStatus;
+  createdAt: number;
+  acceptedAt?: number;
+  deliveredAt?: number;
+  approvedAt?: number;
+  disputedAt?: number;
+  cancelledAt?: number;
+  deliveryNote?: string;
+  disputeReason?: string;
+};
+
+export type BuilderNotification = {
+  id: string;
+  builderId: string;
+  kind: "invite" | "assignment" | "blocked" | "delivery" | "approval" | "dispute";
+  text: string;
+  missionId?: string;
+  agreementId?: string;
+  inviteId?: string;
+  createdAt: number;
+  readAt?: number;
+  webhookAttemptedAt?: number;
+  webhookDeliveredAt?: number;
+};
+
+export type CollaborationAudit = {
+  id: string;
+  at: number;
+  actorType: "builder" | "agent" | "system";
+  actorId: string;
+  action: string;
+  targetType: string;
+  targetId: string;
+  missionId?: string;
+  data?: Record<string, unknown>;
+};
+
+export type RelationshipSummary = {
+  builderId: string;
+  displayName: string;
+  sharedMissionIds: string[];
+  approvedAgreements: number;
+  lastCollaboratedAt: number;
+};
+
+export type CollaborationWorkspace = {
+  builder: BuilderProfile;
+  builders: BuilderProfile[];
+  directory: BuilderProfile[];
+  missions: Mission[];
+  tasks: Task[];
+  invites: MissionInvite[];
+  resources: MissionResource[];
+  grants: CapabilityGrant[];
+  agreements: WorkAgreement[];
+  opportunities: WorkAgreement[];
+  notifications: BuilderNotification[];
+  relationships: RelationshipSummary[];
+  audit: CollaborationAudit[];
+};
+
+export type AgentWorkspace = {
+  agentId: string;
+  builder: Omit<BuilderProfile, "visitorId">;
+  missions: Mission[];
+  tasks: Task[];
+  resources: MissionResource[];
+  grants: CapabilityGrant[];
+  agreements: WorkAgreement[];
 };
 
 export type BuildingStat = {

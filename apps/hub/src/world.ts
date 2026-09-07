@@ -150,6 +150,10 @@ export class World {
     persistAll(dataDir(root), this.toBlob());
   }
 
+  persistToDirectory(dir: string): void {
+    persistAll(dir, this.toBlob());
+  }
+
   toBlob(): PersistBlob {
     return {
       org: this.org,
@@ -167,15 +171,23 @@ export class World {
   }
 
   snapshot(): Snapshot {
+    const publicMissionIds = new Set(
+      this.missions.filter((mission) => mission.visibility !== "private").map((mission) => mission.id),
+    );
     return {
       t: Date.now(),
       org: this.org,
       buildings: this.buildings,
       stations: this.stations,
       agents: [...this.agents.values()],
-      tasks: this.tasks,
-      missions: this.missions,
-      events: this.events.slice(-40),
+      tasks: this.tasks.filter((task) => !task.missionId || publicMissionIds.has(task.missionId)),
+      missions: this.missions.filter((mission) => mission.visibility !== "private"),
+      events: this.events
+        .filter((event) => {
+          const missionId = event.data?.missionId;
+          return typeof missionId !== "string" || publicMissionIds.has(missionId);
+        })
+        .slice(-40),
       presence: {
         online: [...this.agents.values()].filter((a) => a.sprite === "visitor" || a.state !== "sleeping").length,
         visits: this.campusVisits,
@@ -275,8 +287,12 @@ export class World {
 
   acceptedCounts(): Map<string, number> {
     const counts = new Map<string, number>();
+    const privateMissionIds = new Set(
+      this.missions.filter((mission) => mission.visibility === "private").map((mission) => mission.id),
+    );
     for (const t of this.tasks) {
       if (t.kind === "artifact") continue;
+      if (t.missionId && privateMissionIds.has(t.missionId)) continue;
       if (!t.accepted || !t.agentId) continue;
       counts.set(t.agentId, (counts.get(t.agentId) ?? 0) + 1);
     }
@@ -332,7 +348,9 @@ export class World {
       }));
     return {
       agents,
-      tasks: this.tasks.filter((t) => t.status === "open" || t.status === "assigned" || t.status === "doing"),
+      tasks: this.snapshot().tasks.filter(
+        (task) => task.status === "open" || task.status === "assigned" || task.status === "doing",
+      ),
       disclaimer: LABOR_DISCLAIMER,
     };
   }
@@ -400,7 +418,12 @@ export class World {
     const stats = this.computeBuildingStats().find((s) => s.buildingId === b.id);
     const occupants = [...this.agents.values()].filter((a) => buildingAt(this.buildings, a.tile)?.id === b.id);
     const stationIds = new Set(this.stations.filter((s) => s.buildingId === b.id).map((s) => s.id));
+    const privateMissionIds = new Set(
+      this.missions.filter((mission) => mission.visibility === "private").map((mission) => mission.id),
+    );
     const events = this.events.filter((e) => {
+      const missionId = e.data?.missionId;
+      if (typeof missionId === "string" && privateMissionIds.has(missionId)) return false;
       if (!e.agentId) return false;
       const ag = this.agents.get(e.agentId);
       return ag ? buildingAt(this.buildings, ag.tile)?.id === b.id || (ag.currentStationId && stationIds.has(ag.currentStationId)) : false;
@@ -415,9 +438,21 @@ export class World {
       payload.agents = [...this.dirtyAgents].map((id) => this.agents.get(id)).filter((a): a is Agent => Boolean(a));
       // include despawns as absence — client should replace listed agents; also send full agents if any despawned
     }
-    if (this.dirtyEvents.length) payload.events = this.dirtyEvents.slice();
-    if (this.dirtyTasks) payload.tasks = this.tasks;
-    if (this.dirtyMissions) payload.missions = this.missions;
+    const publicMissionIds = new Set(
+      this.missions.filter((mission) => mission.visibility !== "private").map((mission) => mission.id),
+    );
+    if (this.dirtyEvents.length) {
+      payload.events = this.dirtyEvents.filter((event) => {
+        const missionId = event.data?.missionId;
+        return typeof missionId !== "string" || publicMissionIds.has(missionId);
+      });
+    }
+    if (this.dirtyTasks) {
+      payload.tasks = this.tasks.filter((task) => !task.missionId || publicMissionIds.has(task.missionId));
+    }
+    if (this.dirtyMissions) {
+      payload.missions = this.missions.filter((mission) => mission.visibility !== "private");
+    }
     this.dirtyAgents.clear();
     this.dirtyEvents = [];
     this.dirtyTasks = false;
@@ -616,9 +651,21 @@ export class World {
 
   workOn(
     id: string,
-    body: { title: string; stationKind?: StationKind; stationId?: string; toolName?: string; seconds?: number },
+    body: {
+      title: string;
+      stationKind?: StationKind;
+      stationId?: string;
+      toolName?: string;
+      seconds?: number;
+      missionId?: string;
+    },
   ): Agent {
     const a = this.require(id);
+    const missionId = this.activityMissionId(id, body.missionId);
+    const privateWork = missionId
+      ? this.missions.find((mission) => mission.id === missionId)?.visibility === "private"
+      : false;
+    const visibleTitle = privateWork ? "Private mission work" : body.title;
     const seconds = body.seconds ?? 20;
     const dest = this.resolveTarget({ stationId: body.stationId, stationKind: body.stationKind });
     const rt = this.rt(id);
@@ -626,25 +673,61 @@ export class World {
     if (dest) this.goTo(id, dest);
     const startWork = () => {
       a.state = "working";
-      a.bubble = clipBubble(body.title);
+      a.bubble = clipBubble(visibleTitle);
       a.currentTool = body.toolName;
       if (dest?.stationId) a.currentStationId = dest.stationId;
       rt.workUntil = Date.now() + seconds * 1000;
       rt.bubbleUntil = rt.workUntil;
       this.mark(a);
-      this.pushEvent({ kind: "work", agentId: id, text: `${a.name} ${body.title}` });
+      this.pushEvent({
+        kind: "work",
+        agentId: id,
+        text: `${a.name} ${body.title}`,
+        data: missionId ? { missionId } : undefined,
+      });
       this.noteHeat(a);
     };
     if (!dest || (a.tile.x === dest.tile.x && a.tile.y === dest.tile.y)) startWork();
-    else rt.orders.push({ type: "work", title: body.title, seconds, toolName: body.toolName, stationId: dest.stationId });
+    else rt.orders.push({ type: "work", title: visibleTitle, seconds, toolName: body.toolName, stationId: dest.stationId });
     return a;
   }
 
-  toolEvent(id: string, body: { server: string; tool: string; summary: string; status?: "ok" | "error" }): Agent {
+  private activityMissionId(agentId: string, requested?: string): string | undefined {
+    if (requested) return requested;
+    const privateIds = new Set(
+      this.missions
+        .filter(
+          (mission) =>
+            mission.visibility === "private" &&
+            mission.status !== "completed" &&
+            (mission.participantIds.includes(agentId) ||
+              this.tasks.some(
+                (task) =>
+                  task.missionId === mission.id &&
+                  task.agentId === agentId &&
+                  (task.status === "assigned" || task.status === "doing"),
+              )),
+        )
+        .map((mission) => mission.id),
+    );
+    return privateIds.size === 1 ? [...privateIds][0] : undefined;
+  }
+
+  toolEvent(id: string, body: {
+    server: string;
+    tool: string;
+    summary: string;
+    status?: "ok" | "error";
+    missionId?: string;
+  }): Agent {
     const a = this.require(id);
+    const missionId = this.activityMissionId(id, body.missionId);
+    const privateWork = missionId
+      ? this.missions.find((mission) => mission.id === missionId)?.visibility === "private"
+      : false;
     const station = findMappedStation(body.server, body.tool, this.stations, this.buildings);
     a.currentTool = `${body.server}.${body.tool}`;
-    a.bubble = clipBubble(body.summary);
+    a.bubble = clipBubble(privateWork ? "Working privately" : body.summary);
     const rt = this.rt(id);
     rt.bubbleUntil = Date.now() + BUBBLE_MS;
     if (station) {
@@ -652,7 +735,7 @@ export class World {
       this.goTo(id, { tile: { ...station.tile }, stationId: station.id });
       rt.orders.push({
         type: "work",
-        title: body.summary,
+        title: privateWork ? "Private mission work" : body.summary,
         seconds: 8,
         toolName: a.currentTool,
         stationId: station.id,
@@ -667,15 +750,24 @@ export class World {
       kind: "tool",
       agentId: id,
       text: `${a.name} ${a.currentTool} ${body.summary}`,
-      data: { server: body.server, tool: body.tool, status: body.status ?? "ok" },
+      data: {
+        server: body.server,
+        tool: body.tool,
+        status: body.status ?? "ok",
+        ...(missionId ? { missionId } : {}),
+      },
     });
     this.noteHeat(a);
     return a;
   }
 
-  speak(id: string, text: string, toAgentName?: string): Agent {
+  speak(id: string, text: string, toAgentName?: string, missionId?: string): Agent {
     const a = this.require(id);
-    a.bubble = clipBubble(text);
+    const activityMissionId = this.activityMissionId(id, missionId);
+    const privateWork = activityMissionId
+      ? this.missions.find((mission) => mission.id === activityMissionId)?.visibility === "private"
+      : false;
+    a.bubble = clipBubble(privateWork ? "Speaking privately" : text);
     a.state = "speaking";
     this.rt(id).bubbleUntil = Date.now() + BUBBLE_MS;
     if (toAgentName) {
@@ -687,49 +779,77 @@ export class World {
       kind: "speak",
       agentId: id,
       text: toAgentName ? `${a.name} to ${toAgentName}: ${text}` : `${a.name}: ${text}`,
+      data: activityMissionId ? { missionId: activityMissionId } : undefined,
     });
     return a;
   }
 
-  handoff(id: string, toAgentName: string, note: string): Agent {
+  handoff(id: string, toAgentName: string, note: string, missionId?: string): Agent {
     const a = this.require(id);
+    const activityMissionId = this.activityMissionId(id, missionId);
+    const privateWork = activityMissionId
+      ? this.missions.find((mission) => mission.id === activityMissionId)?.visibility === "private"
+      : false;
     const other = [...this.agents.values()].find((x) => x.name.toLowerCase() === toAgentName.toLowerCase());
-    a.bubble = clipBubble(`handoff: ${note}`);
+    a.bubble = clipBubble(privateWork ? "Private handoff" : `handoff: ${note}`);
     this.rt(id).bubbleUntil = Date.now() + BUBBLE_MS;
     if (other) {
-      other.bubble = clipBubble(`got: ${note}`);
+      other.bubble = clipBubble(privateWork ? "Private handoff received" : `got: ${note}`);
       this.rt(other.id).bubbleUntil = Date.now() + BUBBLE_MS;
       this.mark(other);
       this.goTo(id, { tile: { ...other.tile } });
     }
     this.mark(a);
-    this.pushEvent({ kind: "handoff", agentId: id, text: `${a.name} → ${toAgentName}: ${note}` });
+    this.pushEvent({
+      kind: "handoff",
+      agentId: id,
+      text: `${a.name} → ${toAgentName}: ${note}`,
+      data: activityMissionId ? { missionId: activityMissionId } : undefined,
+    });
     return a;
   }
 
-  blocked(id: string, reason: string): Agent {
+  blocked(id: string, reason: string, missionId?: string): Agent {
     const a = this.require(id);
+    const activityMissionId = this.activityMissionId(id, missionId);
+    const privateWork = activityMissionId
+      ? this.missions.find((mission) => mission.id === activityMissionId)?.visibility === "private"
+      : false;
     a.state = "blocked";
-    a.blockedReason = reason;
-    a.bubble = clipBubble(reason);
+    a.blockedReason = privateWork ? "Private mission blocker" : reason;
+    a.bubble = clipBubble(privateWork ? "Blocked on private work" : reason);
     this.rt(id).bubbleUntil = Date.now() + BUBBLE_MS;
     this.rt(id).blockedUntil = Date.now() + 6000;
     const desk = stationByKind(this.stations, "front_desk");
     if (desk) this.goTo(id, { tile: { ...desk.tile }, stationId: desk.id });
     a.state = "blocked";
     this.mark(a);
-    this.pushEvent({ kind: "blocked", agentId: id, text: `${a.name} blocked: ${reason}` });
+    this.pushEvent({
+      kind: "blocked",
+      agentId: id,
+      text: `${a.name} blocked: ${reason}`,
+      data: activityMissionId ? { missionId: activityMissionId } : undefined,
+    });
     return a;
   }
 
-  reportError(id: string, message: string): Agent {
+  reportError(id: string, message: string, missionId?: string): Agent {
     const a = this.require(id);
+    const activityMissionId = this.activityMissionId(id, missionId);
+    const privateWork = activityMissionId
+      ? this.missions.find((mission) => mission.id === activityMissionId)?.visibility === "private"
+      : false;
     a.state = "error";
-    a.bubble = clipBubble(message);
+    a.bubble = clipBubble(privateWork ? "Private work error" : message);
     this.rt(id).errorUntil = Date.now() + 8000;
     this.rt(id).bubbleUntil = Date.now() + BUBBLE_MS;
     this.mark(a);
-    this.pushEvent({ kind: "error", agentId: id, text: `${a.name} ! ${message}` });
+    this.pushEvent({
+      kind: "error",
+      agentId: id,
+      text: `${a.name} ! ${message}`,
+      data: activityMissionId ? { missionId: activityMissionId } : undefined,
+    });
     return a;
   }
 
@@ -772,7 +892,15 @@ export class World {
   }
 
   listTasks(): Task[] {
-    return this.tasks.filter((t) => t.kind !== "artifact" && (t.status === "open" || t.status === "assigned"));
+    const privateMissionIds = new Set(
+      this.missions.filter((mission) => mission.visibility === "private").map((mission) => mission.id),
+    );
+    return this.tasks.filter(
+      (task) =>
+        task.kind !== "artifact" &&
+        (task.status === "open" || task.status === "assigned") &&
+        (!task.missionId || !privateMissionIds.has(task.missionId)),
+    );
   }
 
   listHelpWanted(): Task[] {
@@ -787,6 +915,9 @@ export class World {
     participantId?: string;
     orgId?: string;
     helpWanted?: boolean;
+    visibility?: "public" | "private";
+    ownerBuilderId?: string;
+    builderIds?: string[];
   }): Mission {
     const mission: Mission = {
       id: nanoid(10),
@@ -797,6 +928,9 @@ export class World {
       participantIds: body.participantId ? [body.participantId] : [],
       createdAt: Date.now(),
       helpWanted: body.helpWanted || undefined,
+      visibility: body.visibility,
+      ownerBuilderId: body.ownerBuilderId,
+      builderIds: body.builderIds,
     };
     this.missions.push(mission);
     this.dirtyMissions = true;
@@ -850,6 +984,7 @@ export class World {
     missionId?: string;
     orgId?: string;
     helpWanted?: boolean;
+    agreementId?: string;
   }): Task {
     const mission = body.missionId ? this.requireMission(body.missionId) : undefined;
     const helpWanted = body.helpWanted ?? mission?.helpWanted;
@@ -865,6 +1000,7 @@ export class World {
       status: body.agentId ? "assigned" : "open",
       createdAt: Date.now(),
       helpWanted: helpWanted || undefined,
+      agreementId: body.agreementId,
     };
     this.tasks.push(task);
     this.dirtyTasks = true;
@@ -898,7 +1034,16 @@ export class World {
     this.dirtyTasks = true;
     if (task.missionId) this.joinMission(task.missionId, agentId);
     const desk = stationByKind(this.stations, "desk") ?? stationByKind(this.stations, "front_desk");
-    if (desk) this.workOn(agentId, { title: task.title, stationId: desk.id, seconds: 15 });
+    const privateTask = task.missionId
+      ? this.missions.find((mission) => mission.id === task.missionId)?.visibility === "private"
+      : false;
+    if (desk) {
+      this.workOn(agentId, {
+        title: privateTask ? "Private mission task" : task.title,
+        stationId: desk.id,
+        seconds: 15,
+      });
+    }
     this.pushEvent({
       kind: "task",
       agentId,

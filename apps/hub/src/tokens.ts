@@ -82,4 +82,54 @@ export class OwnerStore {
   }
 }
 
+/** Durable human principal tokens. Unlike agent ownership, these are never
+ * released on disconnect because builder identity must survive browser sessions. */
+export class BuilderTokenStore {
+  private owners = new Map<string, OwnerRecord>();
+  private file: string;
+
+  constructor(dir: string) {
+    this.file = path.join(dir, "builder-tokens.json");
+    try {
+      const parsed = JSON.parse(fs.readFileSync(this.file, "utf8")) as Record<string, OwnerRecord>;
+      for (const [id, rec] of Object.entries(parsed)) {
+        if (rec && typeof rec.hash === "string") this.owners.set(id, rec);
+      }
+    } catch {
+      /* no builders yet */
+    }
+  }
+
+  issue(id: string): string {
+    if (this.owners.has(id)) throw new Error("builder already has a token");
+    return this.replace(id);
+  }
+
+  rotate(id: string): string {
+    if (!this.owners.has(id)) throw new Error("builder has no token");
+    return this.replace(id);
+  }
+
+  private replace(id: string): string {
+    const token = crypto.randomBytes(32).toString("base64url");
+    this.owners.set(id, { hash: sha256(token), issuedAt: Date.now() });
+    this.save();
+    return token;
+  }
+
+  verify(id: string, token: string): boolean {
+    const record = this.owners.get(id);
+    return Boolean(record && token && equal(record.hash, sha256(token)));
+  }
+
+  private save(): void {
+    fs.mkdirSync(path.dirname(this.file), { recursive: true });
+    const tmp = `${this.file}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(Object.fromEntries(this.owners), null, 2), { mode: 0o600 });
+    fs.renameSync(tmp, this.file);
+  }
+}
+
+export const BUILDER_ID_HEADER = "x-builder-id";
+export const BUILDER_TOKEN_HEADER = "x-builder-token";
 export { TOKEN_HEADER };

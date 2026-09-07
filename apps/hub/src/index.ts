@@ -13,8 +13,15 @@ import {
 } from "@district/shared";
 import { World } from "./world.js";
 import { registerHttp } from "./http.js";
-import { OwnerStore, TOKEN_HEADER } from "./tokens.js";
+import {
+  BUILDER_ID_HEADER,
+  BUILDER_TOKEN_HEADER,
+  BuilderTokenStore,
+  OwnerStore,
+  TOKEN_HEADER,
+} from "./tokens.js";
 import { backupData, dataDir } from "./persist.js";
+import { CollaborationService } from "./collaboration.js";
 import { broadcast, registerWs } from "./ws.js";
 import { simTick, startSimulator } from "./simulator.js";
 
@@ -50,19 +57,28 @@ async function main() {
   ];
   await app.register(cors, {
     origin: origins,
-    allowedHeaders: ["content-type", "x-api-key", "x-admin-key", TOKEN_HEADER],
-    exposedHeaders: [TOKEN_HEADER],
+    allowedHeaders: [
+      "content-type",
+      "x-api-key",
+      "x-admin-key",
+      TOKEN_HEADER,
+      BUILDER_ID_HEADER,
+      BUILDER_TOKEN_HEADER,
+    ],
+    exposedHeaders: [TOKEN_HEADER, BUILDER_TOKEN_HEADER],
   });
   await app.register(websocket);
 
   const clients = new Set<(msg: ServerMessage) => void>();
   // One store shared by both mounts below — two stores would mean two sets of owners.
   const owners = new OwnerStore(dataDir());
-  registerHttp(app, world, owners);
+  const builderTokens = new BuilderTokenStore(dataDir());
+  const collaboration = new CollaborationService(world, dataDir());
+  registerHttp(app, world, owners, builderTokens, collaboration);
   registerWs(app, world, clients);
   if (BASE_PATH) {
     await app.register(async (inst) => {
-      registerHttp(inst, world, owners);
+      registerHttp(inst, world, owners, builderTokens, collaboration);
       registerWs(inst, world, clients);
     }, { prefix: BASE_PATH });
   }

@@ -2,10 +2,18 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { ZodError, type ZodType } from "zod";
 import {
   artifactBodySchema,
+  agreementActionBodySchema,
+  agreementCreateBodySchema,
+  bindAgentBodySchema,
+  bindVisitorBodySchema,
   blockedBodySchema,
+  builderCreateBodySchema,
+  builderUpdateBodySchema,
   claimTaskBodySchema,
   errorBodySchema,
   finishTaskBodySchema,
+  fleetEnrollmentAcceptBodySchema,
+  fleetEnrollmentCreateBodySchema,
   goToBodySchema,
   handoffBodySchema,
   heartbeatBodySchema,
@@ -13,6 +21,11 @@ import {
   missionCreateBodySchema,
   missionJoinBodySchema,
   missionStatusBodySchema,
+  grantCreateBodySchema,
+  githubActionBodySchema,
+  inviteAcceptBodySchema,
+  inviteCreateBodySchema,
+  resourceCreateBodySchema,
   speakBodySchema,
   spawnBodySchema,
   shardBodySchema,
@@ -27,8 +40,16 @@ import {
 } from "@district/shared";
 import type { World } from "./world.js";
 import { startSimulator, stopSimulator } from "./simulator.js";
-import { TOKEN_HEADER, type OwnerStore } from "./tokens.js";
+import {
+  BUILDER_ID_HEADER,
+  BUILDER_TOKEN_HEADER,
+  BuilderTokenStore,
+  TOKEN_HEADER,
+  type OwnerStore,
+} from "./tokens.js";
 import { esc, page, rulesPage } from "./publicPages.js";
+import { dataDir } from "./persist.js";
+import { CollaborationService } from "./collaboration.js";
 
 function issues(err: ZodError) {
   return { error: "invalid body", issues: err.issues };
@@ -58,9 +79,21 @@ function tokenFrom(req: FastifyRequest): string {
   return typeof h === "string" ? h : "";
 }
 
-export function registerHttp(app: FastifyInstance, world: World, owners: OwnerStore): void {
+function routeError(reply: FastifyReply, error: unknown) {
+  const value = error as Error & { statusCode?: number };
+  return reply.code(value.statusCode ?? 500).send({ error: value.message });
+}
+
+export function registerHttp(
+  app: FastifyInstance,
+  world: World,
+  owners: OwnerStore,
+  builderTokens = new BuilderTokenStore(dataDir()),
+  collaboration = new CollaborationService(world, dataDir()),
+): void {
   const apiKey = process.env.API_KEY ?? "";
   const adminKey = process.env.DISTRICT_ADMIN_KEY ?? "";
+  const registrations = new Map<string, number[]>();
 
   app.addHook("preHandler", async (req, reply) => {
     if (!apiKey) return;
@@ -107,6 +140,33 @@ export function registerHttp(app: FastifyInstance, world: World, owners: OwnerSt
     return true;
   };
 
+  const authenticatedBuilder = (
+    req: FastifyRequest,
+    reply: FastifyReply,
+  ): string | null => {
+    const id = req.headers[BUILDER_ID_HEADER];
+    const token = req.headers[BUILDER_TOKEN_HEADER];
+    if (
+      typeof id !== "string" ||
+      typeof token !== "string" ||
+      !builderTokens.verify(id, token)
+    ) {
+      reply.code(401).send({ error: "missing or bad builder identity" });
+      return null;
+    }
+    return id;
+  };
+
+  const optionalBuilder = (req: FastifyRequest): string | undefined => {
+    const id = req.headers[BUILDER_ID_HEADER];
+    const token = req.headers[BUILDER_TOKEN_HEADER];
+    return typeof id === "string" &&
+      typeof token === "string" &&
+      builderTokens.verify(id, token)
+      ? id
+      : undefined;
+  };
+
   app.get("/health", async () => ({
     ok: true,
     agents: world.agents.size,
@@ -140,17 +200,17 @@ export function registerHttp(app: FastifyInstance, world: World, owners: OwnerSt
     }
     const card = world.buildingCard(slug);
     if (!card) return reply.code(404).type("text/html").send(page("Not found", "<p>No such building.</p>"));
-    const occ = card.occupants.map((a) => a.name).join(", ") || "empty";
+    const occ = card.occupants.map((a) => esc(a.name)).join(", ") || "empty";
     const ev = card.events
       .slice(-8)
-      .map((e) => `<li>${e.kind}: ${e.text}</li>`)
+      .map((e) => `<li>${e.kind}: ${esc(e.text)}</li>`)
       .join("");
     reply.type("text/html").send(
       page(
         card.building.name,
-        `<h1>${card.building.name}</h1>
+        `<h1>${esc(card.building.name)}</h1>
          <p class="meta">#${card.building.kind} · /b/${card.building.kind} · visits ${card.stats?.visits ?? 0} · heat ${card.stats?.heat ?? 0}</p>
-         <p>founded by ${card.stats?.foundedByName ?? "nobody yet"}</p>
+         <p>founded by ${esc(card.stats?.foundedByName ?? "nobody yet")}</p>
          <p>inside: ${occ}</p>
          <ul>${ev}</ul>
          <p class="meta"><a href="http://127.0.0.1:5173/#${card.building.kind}">open on campus</a></p>`,
@@ -185,6 +245,285 @@ export function registerHttp(app: FastifyInstance, world: World, owners: OwnerSt
       ),
     );
   });
+
+  app.get("/api/builders", async () => collaboration.publicBuilders());
+  app.post("/api/builders/register", async (req, reply) => {
+    const now = Date.now();
+    const recent = (registrations.get(req.ip) ?? []).filter((at) => at > now - 60 * 60 * 1000);
+    if (recent.length >= 5) return reply.code(429).send({ error: "builder registration rate limit exceeded" });
+    recent.push(now);
+    registrations.set(req.ip, recent);
+    const body = await parse(builderCreateBodySchema, req, reply);
+    if (!body) return;
+    try {
+      const profile = collaboration.register({ ...body, skills: body.skills ?? [] });
+      const token = builderTokens.issue(profile.id);
+      reply.header(BUILDER_TOKEN_HEADER, token);
+      return profile;
+    } catch (error) {
+      return routeError(reply, error);
+    }
+  });
+  app.post("/api/builders/me", async (req, reply) => {
+    const id = authenticatedBuilder(req, reply);
+    if (!id) return;
+    const body = await parse(builderUpdateBodySchema, req, reply);
+    if (!body) return;
+    try {
+      return collaboration.updateBuilder(id, body);
+    } catch (error) {
+      return routeError(reply, error);
+    }
+  });
+  app.post("/api/builders/me/rotate-token", async (req, reply) => {
+    const id = authenticatedBuilder(req, reply);
+    if (!id) return;
+    const token = builderTokens.rotate(id);
+    collaboration.recordTokenRotation(id);
+    reply.header(BUILDER_TOKEN_HEADER, token);
+    return { ok: true };
+  });
+  app.post("/api/builders/me/agents", async (req, reply) => {
+    const builderId = authenticatedBuilder(req, reply);
+    if (!builderId) return;
+    const body = await parse(bindAgentBodySchema, req, reply);
+    if (!body) return;
+    if (!owners.verify(body.agentId, tokenFrom(req))) {
+      return reply.code(403).send({ error: "binding requires the connected agent's ownership token" });
+    }
+    try {
+      return collaboration.bindAgent(builderId, body.agentId);
+    } catch (error) {
+      return routeError(reply, error);
+    }
+  });
+  app.post("/api/builders/me/fleet-enrollments", async (req, reply) => {
+    const builderId = authenticatedBuilder(req, reply);
+    if (!builderId) return;
+    const body = await parse(fleetEnrollmentCreateBodySchema, req, reply);
+    if (!body) return;
+    try {
+      return collaboration.createFleetEnrollment(builderId, body.expiresInMinutes ?? 15);
+    } catch (error) {
+      return routeError(reply, error);
+    }
+  });
+  app.post("/api/agents/:id/join-fleet", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    if (!owners.verify(id, tokenFrom(req))) {
+      return reply.code(403).send({ error: "agent ownership token required" });
+    }
+    const body = await parse(fleetEnrollmentAcceptBodySchema, req, reply);
+    if (!body) return;
+    try {
+      return collaboration.enrollAgent(id, body.token);
+    } catch (error) {
+      return routeError(reply, error);
+    }
+  });
+  app.post("/api/builders/me/presence", async (req, reply) => {
+    const builderId = authenticatedBuilder(req, reply);
+    if (!builderId) return;
+    const body = await parse(bindVisitorBodySchema, req, reply);
+    if (!body) return;
+    try {
+      return collaboration.bindVisitor(builderId, body.visitorId);
+    } catch (error) {
+      return routeError(reply, error);
+    }
+  });
+  app.get("/api/workspace", async (req, reply) => {
+    const builderId = authenticatedBuilder(req, reply);
+    if (!builderId) return;
+    try {
+      return collaboration.workspace(builderId);
+    } catch (error) {
+      return routeError(reply, error);
+    }
+  });
+  app.post("/api/collaboration/missions", async (req, reply) => {
+    const builderId = authenticatedBuilder(req, reply);
+    if (!builderId) return;
+    const body = await parse(missionCreateBodySchema, req, reply);
+    if (!body) return;
+    try {
+      return collaboration.createMission(builderId, body);
+    } catch (error) {
+      return routeError(reply, error);
+    }
+  });
+  app.post("/api/missions/:id/invites", async (req, reply) => {
+    const builderId = authenticatedBuilder(req, reply);
+    if (!builderId) return;
+    const body = await parse(inviteCreateBodySchema, req, reply);
+    if (!body) return;
+    const { id } = req.params as { id: string };
+    try {
+      return collaboration.createInvite(builderId, id, body.expiresInHours ?? 72, body.inviteeBuilderId);
+    } catch (error) {
+      return routeError(reply, error);
+    }
+  });
+  app.post("/api/invites/accept", async (req, reply) => {
+    const builderId = authenticatedBuilder(req, reply);
+    if (!builderId) return;
+    const body = await parse(inviteAcceptBodySchema, req, reply);
+    if (!body) return;
+    try {
+      return collaboration.acceptInvite(builderId, body.token);
+    } catch (error) {
+      return routeError(reply, error);
+    }
+  });
+  app.post("/api/invites/:id/accept", async (req, reply) => {
+    const builderId = authenticatedBuilder(req, reply);
+    if (!builderId) return;
+    const { id } = req.params as { id: string };
+    try {
+      return collaboration.acceptTargetedInvite(builderId, id);
+    } catch (error) {
+      return routeError(reply, error);
+    }
+  });
+  app.post("/api/missions/:id/resources", async (req, reply) => {
+    const builderId = authenticatedBuilder(req, reply);
+    if (!builderId) return;
+    const body = await parse(resourceCreateBodySchema, req, reply);
+    if (!body) return;
+    const { id } = req.params as { id: string };
+    try {
+      return collaboration.addResource(builderId, id, body);
+    } catch (error) {
+      return routeError(reply, error);
+    }
+  });
+  app.post("/api/missions/:id/grants", async (req, reply) => {
+    const builderId = authenticatedBuilder(req, reply);
+    if (!builderId) return;
+    const body = await parse(grantCreateBodySchema, req, reply);
+    if (!body) return;
+    const { id } = req.params as { id: string };
+    try {
+      return collaboration.grant(builderId, id, body);
+    } catch (error) {
+      return routeError(reply, error);
+    }
+  });
+  app.post("/api/grants/:id/revoke", async (req, reply) => {
+    const builderId = authenticatedBuilder(req, reply);
+    if (!builderId) return;
+    const { id } = req.params as { id: string };
+    try {
+      return collaboration.revokeGrant(builderId, id);
+    } catch (error) {
+      return routeError(reply, error);
+    }
+  });
+  app.get("/api/agents/:id/capabilities", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    if (!owners.verify(id, tokenFrom(req))) {
+      return reply.code(403).send({ error: "agent ownership token required" });
+    }
+    return collaboration.activeGrantsForAgent(id);
+  });
+  app.get("/api/agents/:id/workspace", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    if (!owners.verify(id, tokenFrom(req))) {
+      return reply.code(403).send({ error: "agent ownership token required" });
+    }
+    try {
+      return collaboration.agentWorkspace(id);
+    } catch (error) {
+      return routeError(reply, error);
+    }
+  });
+  app.post("/api/agents/:id/github", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    if (!owners.verify(id, tokenFrom(req))) {
+      return reply.code(403).send({ error: "agent ownership token required" });
+    }
+    const body = await parse(githubActionBodySchema, req, reply);
+    if (!body) return;
+    try {
+      return await collaboration.executeGitHub(id, body.resourceId, body.action, body.input ?? {});
+    } catch (error) {
+      return routeError(reply, error);
+    }
+  });
+  app.post("/api/agreements", async (req, reply) => {
+    const builderId = authenticatedBuilder(req, reply);
+    if (!builderId) return;
+    const body = await parse(agreementCreateBodySchema, req, reply);
+    if (!body) return;
+    try {
+      return collaboration.createAgreement(builderId, body);
+    } catch (error) {
+      return routeError(reply, error);
+    }
+  });
+  app.get("/api/opportunities", async () => collaboration.opportunities());
+  app.post("/api/agreements/:id/claim", async (req, reply) => {
+    const builderId = authenticatedBuilder(req, reply);
+    if (!builderId) return;
+    const { id } = req.params as { id: string };
+    try {
+      return collaboration.claimAgreement(builderId, id);
+    } catch (error) {
+      return routeError(reply, error);
+    }
+  });
+  app.post("/api/agreements/:id/claim-agent", async (req, reply) => {
+    const agentId = agentIdFrom(req);
+    if (!agentId || !owners.verify(agentId, tokenFrom(req))) {
+      return reply.code(403).send({ error: "agent ownership token required" });
+    }
+    const { id } = req.params as { id: string };
+    try {
+      return collaboration.claimAgreementAsAgent(agentId, id);
+    } catch (error) {
+      return routeError(reply, error);
+    }
+  });
+  for (const action of ["accept", "start", "deliver", "approve", "dispute", "cancel"] as const) {
+    app.post(`/api/agreements/:id/${action}`, async (req, reply) => {
+      const builderId = authenticatedBuilder(req, reply);
+      if (!builderId) return;
+      const body = await parse(agreementActionBodySchema, req, reply);
+      if (!body) return;
+      const { id } = req.params as { id: string };
+      try {
+        return collaboration.transitionAgreement(builderId, id, action, body);
+      } catch (error) {
+        return routeError(reply, error);
+      }
+    });
+  }
+  app.post("/api/agreements/:id/deliver-agent", async (req, reply) => {
+    const agentId = agentIdFrom(req);
+    if (!agentId || !owners.verify(agentId, tokenFrom(req))) {
+      return reply.code(403).send({ error: "agent ownership token required" });
+    }
+    const body = await parse(agreementActionBodySchema, req, reply);
+    if (!body) return;
+    if (!body.deliveryNote) return reply.code(400).send({ error: "delivery note is required" });
+    const { id } = req.params as { id: string };
+    try {
+      return collaboration.deliverAsAgent(agentId, id, body.deliveryNote);
+    } catch (error) {
+      return routeError(reply, error);
+    }
+  });
+  app.post("/api/notifications/:id/read", async (req, reply) => {
+    const builderId = authenticatedBuilder(req, reply);
+    if (!builderId) return;
+    const { id } = req.params as { id: string };
+    try {
+      return collaboration.markNotificationRead(builderId, id);
+    } catch (error) {
+      return routeError(reply, error);
+    }
+  });
+
   app.get("/api/dashboard", async () => world.dashboard());
   app.post("/api/report", async (req, reply) => {
     const body = await parse(reportBodySchema, req, reply);
@@ -222,14 +561,31 @@ export function registerHttp(app: FastifyInstance, world: World, owners: OwnerSt
   app.get("/api/events", async (req) => {
     const q = req.query as { limit?: string };
     const limit = Math.min(Number(q.limit ?? 50), 500);
-    return world.events.slice(-limit);
+    const privateIds = new Set(
+      world.missions.filter((mission) => mission.visibility === "private").map((mission) => mission.id),
+    );
+    return world.events
+      .filter((event) => {
+        const missionId = event.data?.missionId;
+        return typeof missionId !== "string" || !privateIds.has(missionId);
+      })
+      .slice(-limit);
   });
-  app.get("/api/tasks", async () => world.tasks);
-  app.get("/api/missions", async () => world.missions);
+  app.get("/api/tasks", async () => world.snapshot().tasks);
+  app.get("/api/missions", async () => world.snapshot().missions);
   app.get("/api/missions/:id", async (req, reply) => {
     const { id } = req.params as { id: string };
     const mission = world.missions.find((item) => item.id === id);
     if (!mission) return reply.code(404).send({ error: "mission not found" });
+    if (mission.visibility === "private") {
+      const builderId = optionalBuilder(req);
+      if (!builderId) return reply.code(404).send({ error: "mission not found" });
+      try {
+        collaboration.requireMember(builderId, mission.id);
+      } catch {
+        return reply.code(404).send({ error: "mission not found" });
+      }
+    }
     return mission;
   });
   app.get("/api/world/look", async (req, reply) => {
@@ -245,6 +601,18 @@ export function registerHttp(app: FastifyInstance, world: World, owners: OwnerSt
   app.post("/api/tasks", async (req, reply) => {
     const body = await parse(taskCreateBodySchema, req, reply);
     if (!body) return;
+    if (body.missionId) {
+      const mission = world.missions.find((item) => item.id === body.missionId);
+      if (mission?.ownerBuilderId) {
+        const builderId = authenticatedBuilder(req, reply);
+        if (!builderId) return;
+        try {
+          collaboration.requireMember(builderId, mission.id);
+        } catch (error) {
+          return routeError(reply, error);
+        }
+      }
+    }
     return world.createTask({ ...body, body: body.body ?? "" });
   });
 
@@ -253,6 +621,18 @@ export function registerHttp(app: FastifyInstance, world: World, owners: OwnerSt
     if (!body) return;
     const { id } = req.params as { id: string };
     try {
+      const task = world.tasks.find((item) => item.id === id);
+      const mission = task?.missionId
+        ? world.missions.find((item) => item.id === task.missionId)
+        : undefined;
+      if (mission?.ownerBuilderId) {
+        const builderId = authenticatedBuilder(req, reply);
+        if (!builderId) return;
+        collaboration.requireMember(builderId, mission.id);
+        if (collaboration.requireBuilder(builderId).visitorId !== body.participantId) {
+          return reply.code(403).send({ error: "review must use the builder's bound visitor" });
+        }
+      }
       return world.acceptTask(id, body.participantId);
     } catch (e) {
       const err = e as Error & { statusCode?: number };
@@ -265,6 +645,18 @@ export function registerHttp(app: FastifyInstance, world: World, owners: OwnerSt
     if (!body) return;
     const { id } = req.params as { id: string };
     try {
+      const task = world.tasks.find((item) => item.id === id);
+      const mission = task?.missionId
+        ? world.missions.find((item) => item.id === task.missionId)
+        : undefined;
+      if (mission?.ownerBuilderId) {
+        const builderId = authenticatedBuilder(req, reply);
+        if (!builderId) return;
+        collaboration.requireMember(builderId, mission.id);
+        if (collaboration.requireBuilder(builderId).visitorId !== body.participantId) {
+          return reply.code(403).send({ error: "review must use the builder's bound visitor" });
+        }
+      }
       return world.rejectTask(id, body.participantId, body.reason);
     } catch (e) {
       const err = e as Error & { statusCode?: number };
@@ -275,13 +667,29 @@ export function registerHttp(app: FastifyInstance, world: World, owners: OwnerSt
   app.post("/api/missions", async (req, reply) => {
     const body = await parse(missionCreateBodySchema, req, reply);
     if (!body) return;
-    return world.createMission(body);
+    if (body.visibility === "private") {
+      return reply.code(400).send({ error: "private missions require a builder identity" });
+    }
+    return world.createMission({ ...body, visibility: "public" });
   });
 
   app.post("/api/missions/:id/join", async (req, reply) => {
     const body = await parse(missionJoinBodySchema, req, reply);
     if (!body) return;
     const { id } = req.params as { id: string };
+    const mission = world.missions.find((item) => item.id === id);
+    if (mission?.ownerBuilderId) {
+      const builderId = authenticatedBuilder(req, reply);
+      if (!builderId) return;
+      try {
+        collaboration.requireMember(builderId, id);
+        if (collaboration.requireBuilder(builderId).visitorId !== body.participantId) {
+          return reply.code(403).send({ error: "join must use the builder's bound visitor" });
+        }
+      } catch (error) {
+        return routeError(reply, error);
+      }
+    }
     return world.joinMission(id, body.participantId);
   });
 
@@ -289,6 +697,16 @@ export function registerHttp(app: FastifyInstance, world: World, owners: OwnerSt
     const body = await parse(missionStatusBodySchema, req, reply);
     if (!body) return;
     const { id } = req.params as { id: string };
+    const mission = world.missions.find((item) => item.id === id);
+    if (mission?.ownerBuilderId) {
+      const builderId = authenticatedBuilder(req, reply);
+      if (!builderId) return;
+      try {
+        collaboration.requireOwner(builderId, id);
+      } catch (error) {
+        return routeError(reply, error);
+      }
+    }
     return world.setMissionStatus(id, body.status);
   });
 
@@ -457,24 +875,62 @@ export function registerHttp(app: FastifyInstance, world: World, owners: OwnerSt
           return world.goTo(id, dest);
         }
         case "work_on": {
-          return world.workOn(id, workOnBodySchema.parse(req.body ?? {}));
+          const body = workOnBodySchema.parse(req.body ?? {});
+          if (body.missionId) {
+            const mission = world.missions.find((item) => item.id === body.missionId);
+            if (!mission) return reply.code(404).send({ error: "mission not found" });
+            if (mission.visibility === "private") collaboration.requireAgentMissionAccess(id, mission.id);
+          }
+          return world.workOn(id, body);
         }
         case "tool_event": {
-          return world.toolEvent(id, toolEventBodySchema.parse(req.body ?? {}));
+          const body = toolEventBodySchema.parse(req.body ?? {});
+          if (body.missionId) {
+            const mission = world.missions.find((item) => item.id === body.missionId);
+            if (!mission) return reply.code(404).send({ error: "mission not found" });
+            if (mission.visibility === "private") {
+              collaboration.requireAgentMissionAccess(id, mission.id);
+            }
+          }
+          return world.toolEvent(id, body);
         }
         case "speak": {
           const body = speakBodySchema.parse(req.body ?? {});
-          return world.speak(id, body.text, body.toAgentName);
+          if (body.missionId) {
+            const mission = world.missions.find((item) => item.id === body.missionId);
+            if (!mission) return reply.code(404).send({ error: "mission not found" });
+            if (mission.visibility === "private") collaboration.requireAgentMissionAccess(id, mission.id);
+          }
+          return world.speak(id, body.text, body.toAgentName, body.missionId);
         }
         case "handoff": {
           const body = handoffBodySchema.parse(req.body ?? {});
-          return world.handoff(id, body.toAgentName, body.note);
+          if (body.missionId) {
+            const mission = world.missions.find((item) => item.id === body.missionId);
+            if (!mission) return reply.code(404).send({ error: "mission not found" });
+            if (mission.visibility === "private") collaboration.requireAgentMissionAccess(id, mission.id);
+          }
+          return world.handoff(id, body.toAgentName, body.note, body.missionId);
         }
         case "blocked": {
-          return world.blocked(id, blockedBodySchema.parse(req.body ?? {}).reason);
+          const body = blockedBodySchema.parse(req.body ?? {});
+          if (body.missionId) {
+            const mission = world.missions.find((item) => item.id === body.missionId);
+            if (!mission) return reply.code(404).send({ error: "mission not found" });
+            if (mission.visibility === "private") collaboration.requireAgentMissionAccess(id, mission.id);
+          }
+          const result = world.blocked(id, body.reason, body.missionId);
+          collaboration.notifyBlocked(id, body.reason);
+          return result;
         }
         case "report_error": {
-          return world.reportError(id, errorBodySchema.parse(req.body ?? {}).message);
+          const body = errorBodySchema.parse(req.body ?? {});
+          if (body.missionId) {
+            const mission = world.missions.find((item) => item.id === body.missionId);
+            if (!mission) return reply.code(404).send({ error: "mission not found" });
+            if (mission.visibility === "private") collaboration.requireAgentMissionAccess(id, mission.id);
+          }
+          return world.reportError(id, body.message, body.missionId);
         }
         case "drop_artifact": {
           const body = artifactBodySchema.parse(req.body ?? {});
@@ -487,10 +943,25 @@ export function registerHttp(app: FastifyInstance, world: World, owners: OwnerSt
         case "list_help_wanted":
           return world.helpWantedBoard();
         case "claim_task": {
-          return world.claimTask(id, claimTaskBodySchema.parse(req.body ?? {}).taskId);
+          const taskId = claimTaskBodySchema.parse(req.body ?? {}).taskId;
+          const task = world.tasks.find((item) => item.id === taskId);
+          const mission = task?.missionId
+            ? world.missions.find((item) => item.id === task.missionId)
+            : undefined;
+          if (mission?.visibility === "private") {
+            collaboration.requireAgentMissionAccess(id, mission.id);
+          }
+          return world.claimTask(id, taskId);
         }
         case "finish_task": {
           const body = finishTaskBodySchema.parse(req.body ?? {});
+          const task = world.tasks.find((item) => item.id === body.taskId);
+          const mission = task?.missionId
+            ? world.missions.find((item) => item.id === task.missionId)
+            : undefined;
+          if (mission?.visibility === "private") {
+            collaboration.requireAgentMissionAccess(id, mission.id);
+          }
           return world.finishTask(id, body.taskId, body.result);
         }
         case "despawn": {

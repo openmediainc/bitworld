@@ -3,7 +3,7 @@ import Phaser from "phaser";
 import type { Snapshot } from "@district/shared";
 import { DistrictScene, gameConfig } from "./phaser/DistrictScene";
 import { TopBar } from "./ui/TopBar";
-import { SidePanel } from "./ui/SidePanel";
+import { SidePanel, type SideTab } from "./ui/SidePanel";
 import { EventLog } from "./ui/EventLog";
 import { Inspector } from "./ui/Inspector";
 import { TaskComposer } from "./ui/TaskComposer";
@@ -47,7 +47,7 @@ export function App() {
   const wsRef = useRef<WsApi | null>(null);
   const [snap, setSnap] = useState<Snapshot>(emptySnap());
   const [conn, setConn] = useState<ConnState>("yellow");
-  const [tab, setTab] = useState<"missions" | "help" | "agents" | "stations" | "tasks" | "connect">("missions");
+  const [tab, setTab] = useState<SideTab>("network");
   const [selectedMission, setSelectedMission] = useState<string | null>(null);
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
   const [selectedStation, setSelectedStation] = useState<string | null>(null);

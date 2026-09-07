@@ -2,10 +2,13 @@ import type { Agent, Building, Mission, Station, Task, WorldEvent } from "@distr
 import { ConnectPanel } from "./ConnectPanel";
 import { HelpBoard } from "./HelpBoard";
 import { MissionPanel } from "./MissionPanel";
+import { NetworkPanel } from "./NetworkPanel";
+
+export type SideTab = "network" | "missions" | "help" | "agents" | "stations" | "tasks" | "connect";
 
 export function SidePanel(props: {
-  tab: "missions" | "help" | "agents" | "stations" | "tasks" | "connect";
-  onTab: (t: "missions" | "help" | "agents" | "stations" | "tasks" | "connect") => void;
+  tab: SideTab;
+  onTab: (t: SideTab) => void;
   agents: Agent[];
   stations: Station[];
   buildings: Building[];
@@ -24,13 +27,14 @@ export function SidePanel(props: {
   return (
     <aside className="side">
       <div className="tabs">
-        {(["missions", "help", "agents", "stations", "tasks", "connect"] as const).map((t) => (
+        {(["network", "missions", "help", "agents", "stations", "tasks", "connect"] as const).map((t) => (
           <button key={t} className={props.tab === t ? "on" : ""} onClick={() => props.onTab(t)}>
             {t}
           </button>
         ))}
       </div>
       <div className="list">
+        {props.tab === "network" && <NetworkPanel visitorId={props.visitorId} />}
         {props.tab === "missions" && (
           <MissionPanel
             missions={props.missions}

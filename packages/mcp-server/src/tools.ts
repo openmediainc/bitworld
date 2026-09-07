@@ -51,6 +51,7 @@ export const TOOL_DEFS = [
       stationId: z.string().optional(),
       toolName: z.string().optional(),
       seconds: z.number().optional(),
+      missionId: z.string().optional(),
     },
   },
   {
@@ -62,27 +63,36 @@ export const TOOL_DEFS = [
       tool: z.string(),
       summary: z.string(),
       status: z.enum(["ok", "error"]).optional(),
+      missionId: z.string().optional(),
     },
   },
   {
     name: "speak",
     description: "bubble + event. If toAgentName, walk within 2 tiles first (async, don’t block tool)",
-    schema: { text: z.string(), toAgentName: z.string().optional() },
+    schema: {
+      text: z.string(),
+      toAgentName: z.string().optional(),
+      missionId: z.string().optional(),
+    },
   },
   {
     name: "handoff",
     description: "both agents get bubbles; event kind handoff; this agent walks toward the other",
-    schema: { toAgentName: z.string(), note: z.string() },
+    schema: {
+      toAgentName: z.string(),
+      note: z.string(),
+      missionId: z.string().optional(),
+    },
   },
   {
     name: "blocked",
     description: "state blocked, orange ?, walk to HQ front_desk",
-    schema: { reason: z.string() },
+    schema: { reason: z.string(), missionId: z.string().optional() },
   },
   {
     name: "report_error",
     description: "state error, red !",
-    schema: { message: z.string() },
+    schema: { message: z.string(), missionId: z.string().optional() },
   },
   {
     name: "drop_artifact",
@@ -104,6 +114,64 @@ export const TOOL_DEFS = [
     description:
       "public-safe volunteer tasks other people posted. Claim with claim_task, finish with finish_task. A human must accept the artifact before it counts as reputation. No money or credits. Do not put secrets in results.",
     schema: {},
+  },
+  {
+    name: "list_builders",
+    description: "discover durable builder profiles, skills, and their connected fleet identities",
+    schema: {},
+  },
+  {
+    name: "list_opportunities",
+    description:
+      "public work agreements open to builders, including acceptance criteria and volunteer or external-settlement terms",
+    schema: {},
+  },
+  {
+    name: "claim_agreement",
+    description:
+      "claim a public agreement for this agent's enrolled fleet; the human builder still accepts it explicitly",
+    schema: { agreementId: z.string() },
+  },
+  {
+    name: "join_builder_fleet",
+    description:
+      "consume a single-use fleet enrollment token created by a human builder; never requires or exposes the builder credential",
+    schema: { token: z.string().optional() },
+  },
+  {
+    name: "get_workspace",
+    description:
+      "agent-scoped workspace: fleet missions, tasks, agreements, granted resources, and active capabilities",
+    schema: {},
+  },
+  {
+    name: "list_capabilities",
+    description:
+      "list active, revocable resource capabilities granted to this agent or its builder; credentials are never returned by District",
+    schema: {},
+  },
+  {
+    name: "github_action",
+    description:
+      "execute one GitHub App operation through an active District capability. Supported: issues:read, issues:comment, contents:read, contents:write, branches:create, pull_requests:create.",
+    schema: {
+      resourceId: z.string(),
+      action: z.enum([
+        "issues:read",
+        "issues:comment",
+        "contents:read",
+        "contents:write",
+        "branches:create",
+        "pull_requests:create",
+      ]),
+      input: z.record(z.unknown()),
+    },
+  },
+  {
+    name: "deliver_agreement",
+    description:
+      "deliver against an accepted work agreement as this agent. The provider's builder must own this agent.",
+    schema: { agreementId: z.string(), deliveryNote: z.string() },
   },
   {
     name: "claim_task",
@@ -171,6 +239,29 @@ export async function callTool(name: string, args: Record<string, unknown>): Pro
       return hubGet(`/api/tasks`);
     case "list_help_wanted":
       return hubGet(`/api/help`);
+    case "list_builders":
+      return hubGet(`/api/builders`);
+    case "list_opportunities":
+      return hubGet(`/api/opportunities`);
+    case "claim_agreement":
+      return hubPost(`/api/agreements/${String(args.agreementId)}/claim-agent`, {
+        agentId: needId(),
+      });
+    case "join_builder_fleet":
+      return hubPost(`/api/agents/${needId()}/join-fleet`, {
+        token: args.token ?? process.env.FLEET_TOKEN,
+      });
+    case "get_workspace":
+      return hubGet(`/api/agents/${needId()}/workspace`);
+    case "list_capabilities":
+      return hubGet(`/api/agents/${needId()}/capabilities`);
+    case "github_action":
+      return hubPost(`/api/agents/${needId()}/github`, args);
+    case "deliver_agreement":
+      return hubPost(`/api/agreements/${String(args.agreementId)}/deliver-agent`, {
+        agentId: needId(),
+        deliveryNote: args.deliveryNote,
+      });
     case "claim_task":
       return hubPost(`/api/mcp/claim_task`, { ...args, agentId: needId() });
     case "finish_task":
