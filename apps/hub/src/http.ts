@@ -187,7 +187,7 @@ export function registerHttp(
   }));
 
   app.get("/api/info", async () => ({
-    root: process.cwd(),
+    root: process.env.DISTRICT_ROOT ?? process.cwd(),
     hubUrl: process.env.PUBLIC_ORIGIN
       ? `${process.env.PUBLIC_ORIGIN}${process.env.BASE_PATH ?? ""}`
       : `http://127.0.0.1:${process.env.PORT ?? 4242}`,
