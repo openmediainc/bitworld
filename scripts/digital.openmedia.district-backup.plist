@@ -14,7 +14,7 @@
     <key>DISTRICT_ROOT</key>
     <string>/Volumes/MacMiniExtended/Local Server/District</string>
     <key>DISTRICT_BACKUP_DIR</key>
-    <string>/Volumes/MacMiniExtended/Backups/District</string>
+    <string>/Users/q-mac/Library/Application Support/District/backups</string>
     <key>DISTRICT_BACKUP_KEEP</key>
     <string>30</string>
   </dict>
