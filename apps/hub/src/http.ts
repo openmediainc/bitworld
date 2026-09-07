@@ -4,7 +4,6 @@ import {
   artifactBodySchema,
   agreementActionBodySchema,
   agreementCreateBodySchema,
-  bindAgentBodySchema,
   bindVisitorBodySchema,
   blockedBodySchema,
   builderCreateBodySchema,
@@ -310,20 +309,6 @@ export function registerHttp(
       console.error("[district] could not audit builder token rotation", error);
     }
     return { ok: true };
-  });
-  app.post("/api/builders/me/agents", async (req, reply) => {
-    const builderId = authenticatedBuilder(req, reply);
-    if (!builderId) return;
-    const body = await parse(bindAgentBodySchema, req, reply);
-    if (!body) return;
-    if (!owners.verify(body.agentId, tokenFrom(req))) {
-      return reply.code(403).send({ error: "binding requires the connected agent's ownership token" });
-    }
-    try {
-      return collaboration.bindAgent(builderId, body.agentId);
-    } catch (error) {
-      return routeError(reply, error);
-    }
   });
   app.post("/api/builders/me/agents/:id/remove", async (req, reply) => {
     const builderId = authenticatedBuilder(req, reply);

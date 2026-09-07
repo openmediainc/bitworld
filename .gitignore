@@ -4,6 +4,7 @@ dist
 .DS_Store
 .district-agent-id
 .district-session.json
+.mcp.json
 data/*.json
 !data/.gitkeep
 apps/web/dist

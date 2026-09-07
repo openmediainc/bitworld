@@ -341,7 +341,6 @@ export const builderCreateBodySchema = z.object({
 export const builderUpdateBodySchema = builderCreateBodySchema
   .omit({ handle: true })
   .partial();
-export const bindAgentBodySchema = z.object({ agentId: principalIdSchema });
 export const fleetEnrollmentCreateBodySchema = z.object({
   expiresInMinutes: z.number().int().min(1).max(60).default(15),
 });
