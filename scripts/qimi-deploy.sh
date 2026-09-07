@@ -6,6 +6,18 @@ cd "$ROOT"
 export PATH="/opt/homebrew/bin:$HOME/.local/bin:$PATH"
 git fetch origin main
 git reset --hard origin/main
+APP_SUPPORT="$HOME/Library/Application Support/District"
+RUNTIME="$APP_SUPPORT/runtime"
+mkdir -p "$RUNTIME"
+if [ ! -d "$APP_SUPPORT/data" ] && [ -d "$ROOT/data" ]; then
+  ditto "$ROOT/data" "$APP_SUPPORT/data"
+fi
+rsync -a --delete \
+  --exclude .git \
+  --exclude node_modules \
+  --exclude data \
+  "$ROOT/" "$RUNTIME/"
+cd "$RUNTIME"
 npm ci
 export DISTRICT_BASE="${DISTRICT_BASE:-/district/}"
 npm run build -w @district/web

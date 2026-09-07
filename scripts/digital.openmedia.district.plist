@@ -10,8 +10,8 @@
   <array>
     <string>/opt/homebrew/bin/node</string>
     <string>--import</string>
-    <string>/Volumes/MacMiniExtended/Local Server/District/node_modules/tsx/dist/loader.mjs</string>
-    <string>/Volumes/MacMiniExtended/Local Server/District/apps/hub/src/index.ts</string>
+    <string>/Users/q-mac/Library/Application Support/District/runtime/node_modules/tsx/dist/loader.mjs</string>
+    <string>/Users/q-mac/Library/Application Support/District/runtime/apps/hub/src/index.ts</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>
@@ -28,9 +28,9 @@
     <key>DISTRICT_SIM</key>
     <string>0</string>
     <key>DATA_DIR</key>
-    <string>/Volumes/MacMiniExtended/Local Server/District/data</string>
+    <string>/Users/q-mac/Library/Application Support/District/data</string>
     <key>DISTRICT_ROOT</key>
-    <string>/Volumes/MacMiniExtended/Local Server/District</string>
+    <string>/Users/q-mac/Library/Application Support/District/runtime</string>
     <key>PUBLIC_ORIGIN</key>
     <string>https://q-ai.tail735569.ts.net/district</string>
   </dict>
