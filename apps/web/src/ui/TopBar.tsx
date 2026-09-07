@@ -17,6 +17,7 @@ export function TopBar(props: {
   onHelp: () => void;
   onSearch: () => void;
   onPostcard: () => void;
+  onRules: () => void;
   shard: "campus" | "avenue";
   onShard: (s: "campus" | "avenue") => void;
 }) {
@@ -49,6 +50,7 @@ export function TopBar(props: {
       </button>
       <button onClick={props.onSearch}>Search</button>
       <button onClick={props.onPostcard}>Postcard</button>
+      <button onClick={props.onRules}>Rules</button>
       <button onClick={props.onSim}>Simulator {props.simOn ? "ON" : "OFF"}</button>
       <button onClick={props.onFollow}>{props.following ? "Unfollow" : "Follow"}</button>
       <button onClick={props.onHelp}>Help</button>

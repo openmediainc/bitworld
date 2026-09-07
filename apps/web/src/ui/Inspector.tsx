@@ -50,7 +50,7 @@ export function Inspector(props: {
         {props.sharePath && (
           <button
             onClick={() => {
-              void navigator.clipboard.writeText(`${location.origin}/${props.sharePath}`);
+              void navigator.clipboard.writeText(`${location.origin}${props.sharePath}`);
             }}
           >
             Copy address
@@ -92,7 +92,7 @@ export function Inspector(props: {
         {props.sharePath && (
           <button
             onClick={() => {
-              void navigator.clipboard.writeText(`${location.origin}/${props.sharePath}`);
+              void navigator.clipboard.writeText(`${location.origin}${props.sharePath}`);
             }}
           >
             Copy address

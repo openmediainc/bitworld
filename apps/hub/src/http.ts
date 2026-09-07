@@ -18,10 +18,12 @@ import {
   visitorMoveBodySchema,
   visitorSayBodySchema,
   workOnBodySchema,
+  reportBodySchema,
   VISITOR_ID,
 } from "@district/shared";
 import type { World } from "./world.js";
 import { startSimulator, stopSimulator } from "./simulator.js";
+import { page, rulesPage } from "./publicPages.js";
 
 function issues(err: ZodError) {
   return { error: "invalid body", issues: err.issues };
@@ -71,6 +73,48 @@ export function registerHttp(app: FastifyInstance, world: World): void {
     mcpEntry: "packages/mcp-server/src/index.ts",
   }));
 
+  app.get("/rules", async (_req, reply) => {
+    reply.type("text/html").send(rulesPage());
+  });
+  app.get("/b/:slug", async (req, reply) => {
+    const { slug } = req.params as { slug: string };
+    const plot = world.avenuePlots.find((p) => p.slug === slug || p.id === slug);
+    if (plot) {
+      const href = plot.href ? `<p><a href="${plot.href}">${plot.kind === "billboard" ? "Open BitGrid" : "Visit"}</a></p>` : "";
+      reply.type("text/html").send(
+        page(
+          `${plot.address} — ${plot.orgName}`,
+          `<h1>${plot.orgName}</h1><p class="meta">${plot.address} · ${plot.kind} · not for sale</p>${href}`,
+        ),
+      );
+      return;
+    }
+    const card = world.buildingCard(slug);
+    if (!card) return reply.code(404).type("text/html").send(page("Not found", "<p>No such building.</p>"));
+    const occ = card.occupants.map((a) => a.name).join(", ") || "empty";
+    const ev = card.events
+      .slice(-8)
+      .map((e) => `<li>${e.kind}: ${e.text}</li>`)
+      .join("");
+    reply.type("text/html").send(
+      page(
+        card.building.name,
+        `<h1>${card.building.name}</h1>
+         <p class="meta">#${card.building.kind} · /b/${card.building.kind} · visits ${card.stats?.visits ?? 0} · heat ${card.stats?.heat ?? 0}</p>
+         <p>founded by ${card.stats?.foundedByName ?? "nobody yet"}</p>
+         <p>inside: ${occ}</p>
+         <ul>${ev}</ul>
+         <p class="meta"><a href="http://127.0.0.1:5173/#${card.building.kind}">open on campus</a></p>`,
+      ),
+    );
+  });
+  app.get("/api/labor", async () => world.laborBoard());
+  app.get("/api/dashboard", async () => world.dashboard());
+  app.post("/api/report", async (req, reply) => {
+    const body = await parse(reportBodySchema, req, reply);
+    if (!body) return;
+    return world.fileReport(body.text);
+  });
   app.get("/api/snapshot", async () => world.snapshot());
   app.get("/api/avenue", async () => ({
     km0: world.snapshot().avenue?.km0,

@@ -207,6 +207,65 @@ export class World {
     return { agent: a, body };
   }
 
+  laborBoard(now = Date.now()) {
+    const since = now - 60 * 60 * 1000;
+    const tools = new Map<string, number>();
+    for (const e of this.events) {
+      if (e.at < since) continue;
+      if (e.kind !== "tool" && e.kind !== "work" && e.kind !== "artifact") continue;
+      if (!e.agentId) continue;
+      tools.set(e.agentId, (tools.get(e.agentId) ?? 0) + 1);
+    }
+    const done = new Map<string, number>();
+    for (const t of this.tasks) {
+      if (t.status !== "done" || t.createdAt < since) continue;
+      if (!t.agentId) continue;
+      done.set(t.agentId, (done.get(t.agentId) ?? 0) + 1);
+    }
+    const rows = [...this.agents.values()]
+      .filter((a) => a.sprite !== "visitor")
+      .map((a) => ({
+        id: a.id,
+        name: a.name,
+        simulated: a.simulated,
+        toolsLastHour: tools.get(a.id) ?? 0,
+        tasksDoneLastHour: done.get(a.id) ?? 0,
+        score: (tools.get(a.id) ?? 0) + (done.get(a.id) ?? 0) * 2,
+      }))
+      .sort((a, b) => b.score - a.score);
+    return { disclaimer: "Ranking is not endorsement. Being connected does not exempt you from campus rules.", rows };
+  }
+
+  dashboard() {
+    const agents = [...this.agents.values()]
+      .filter((a) => a.sprite !== "visitor")
+      .map((a) => ({
+        id: a.id,
+        name: a.name,
+        role: a.role,
+        simulated: a.simulated,
+        state: a.state,
+        currentTool: a.currentTool,
+        lastHeartbeatAt: a.lastHeartbeatAt,
+        lastEventAt: a.lastEventAt,
+      }));
+    return {
+      agents,
+      tasks: this.tasks.filter((t) => t.status === "open" || t.status === "assigned" || t.status === "doing"),
+      disclaimer: "These are credits-of-work (heartbeats and tasks), not a wallet.",
+    };
+  }
+
+  fileReport(text: string) {
+    const clipped = text.length <= 280 ? text : text.slice(0, 277) + "...";
+    this.pushEvent({
+      kind: "artifact",
+      text: `campus report: ${clipped}`,
+      data: { report: true },
+    });
+    return { ok: true };
+  }
+
   computeBuildingStats(now = Date.now()): BuildingStat[] {
     const windowMs = 60_000;
     const heatCount = new Map<string, number>();
@@ -694,8 +753,11 @@ export class World {
       const cx = b.rect.x + b.rect.w / 2;
       const cy = b.rect.y + b.rect.h / 2;
       return dist({ x: Math.round(cx), y: Math.round(cy) }, here) <= r + 8;
-    });
-    return { agents, stations, buildings };
+    }).map((b) => ({
+      ...b,
+      sharePath: `/b/${b.kind}`,
+    }));
+    return { agents, stations, buildings, km0: { ...FOUNTAIN }, shareHint: "http://127.0.0.1:4242/b/hq" };
   }
 
   sweepHeartbeats(now = Date.now()): void {

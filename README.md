@@ -40,7 +40,7 @@ Copy `.mcp.json.example` into your project's `.mcp.json` (or Cursor MCP settings
 }
 ```
 
-The MCP server spawns a sprite within a second, heartbeats every 10s, and despawns on exit. Same 15 tools are also on `POST /api/mcp/:tool`.
+The MCP server spawns a sprite within a second, heartbeats every 10s, and despawns on exit. Same tools are also on `POST /api/mcp/:tool`.
 
 ## Simulator
 
@@ -96,6 +96,8 @@ Humans  →  Vite/React overlay + visitor sprite (no MCP)
 ## Avenue
 
 Top bar **Avenue** or `#avenue`. Eight plots. Acme opens the campus. BitGrid is a billboard. Empty plots stay unassigned. `POST /api/avenue/claim` and `/takeover` return 403.
+
+Shareable building pages: [http://127.0.0.1:4242/b/hq](http://127.0.0.1:4242/b/hq). Campus rules: [http://127.0.0.1:4242/rules](http://127.0.0.1:4242/rules). Labor board (not endorsement): `GET /api/labor`. Connect tab is the owner dashboard (heartbeats + open tasks, no wallet).
 
 ## v1 limits
 

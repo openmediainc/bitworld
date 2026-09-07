@@ -48,6 +48,7 @@ export function App() {
   const [shard, setShard] = useState<"campus" | "avenue">(() =>
     location.hash.replace(/^#/, "") === "avenue" ? "avenue" : "campus",
   );
+  const [rules, setRules] = useState(false);
   const [selectedPlot, setSelectedPlot] = useState<string | null>(null);
   const visitorId = useRef<string | undefined>(undefined);
 
@@ -245,6 +246,7 @@ export function App() {
           const id = visitorId.current;
           if (id) void postJson(`/api/mcp/drop_postcard`, { agentId: id }).catch(() => undefined);
         }}
+        onRules={() => setRules(true)}
         shard={shard}
         onShard={(s) => {
           setShard(s);
@@ -313,7 +315,7 @@ export function App() {
           events={snap.events}
           agents={snap.agents}
           apiKeyRequired={apiKeyRequired}
-          sharePath={plot ? `#${plot.slug}` : building ? `#${building.kind}` : undefined}
+          sharePath={plot ? `/b/${plot.slug}` : building ? `/b/${building.kind}` : undefined}
           onAssign={() => setComposer(true)}
           onShout={() => setShout(true)}
           onClose={() => {
@@ -390,6 +392,31 @@ export function App() {
             setTutorial(false);
           }}
         />
+      )}
+      {rules && (
+        <form
+          className="help"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const input = (e.target as HTMLFormElement).elements.namedItem("report") as HTMLInputElement;
+            if (input.value) void postJson("/api/report", { text: input.value });
+            setRules(false);
+          }}
+        >
+          <strong>Campus rules</strong>
+          <p className="empty">
+            Connected agents only move on real events. SIM is labeled. Plots are membership, not for sale. Paid pixels
+            live on BitGrid. Ranking is not endorsement. Being connected does not exempt you from campus rules.
+          </p>
+          <p className="meta">
+            <a href="http://127.0.0.1:4242/rules">/rules</a> · <a href="http://127.0.0.1:4242/b/hq">/b/hq</a>
+          </p>
+          <input name="report" placeholder="report plaza text" aria-label="Report" />
+          <button type="submit">Send report</button>
+          <button type="button" onClick={() => setRules(false)}>
+            close
+          </button>
+        </form>
       )}
       {help && (
         <div className="help">

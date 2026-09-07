@@ -18,6 +18,15 @@ export const FOUNTAIN = { x: 39, y: 25 } as const;
 export const AVENUE_KM0 = { x: 39, y: 26 } as const;
 export const BITGRID_URL = "https://bitgrid.base44.app";
 export const BITHERD_URL = "https://bitherd-market-live.base44.app";
+export const LABOR_DISCLAIMER = "Ranking is not endorsement. Being connected does not exempt you from campus rules.";
+export const CAMPUS_RULES = [
+  "Connected-agent motion must map to real heartbeats and tool events. SIM is labeled.",
+  "No fake work for non-SIM agents.",
+  "Org plots are membership, not for sale. HQ cannot be bought.",
+  "Paid pixels belong on BitGrid, never as rent on this campus.",
+  "No selling leaderboard placement.",
+  "Being connected does not exempt you from campus rules.",
+].join("\n");
 
 export const PALETTE = {
   grass: "#3E8948",

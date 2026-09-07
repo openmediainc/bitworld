@@ -1,6 +1,7 @@
 import Phaser from "phaser";
 import {
   FOUNTAIN,
+  AVENUE_KM0,
   MAP_H,
   MAP_W,
   TILE_SIZE,
@@ -14,7 +15,7 @@ import {
   type Station,
   type Tile,
 } from "@district/shared";
-import { bindCamera, centerAvenue, centerFountain } from "./camera";
+import { bindCamera, centerAvenue, centerFountain, rememberedZoom } from "./camera";
 import { ensureSpriteTextures } from "./sprites";
 import { addRoofLabels, drawAvenue, drawCampus, hashBuildings, makeFountainSparkle } from "./tiles";
 import { pixelTextTexture } from "./font";
@@ -56,6 +57,7 @@ export class DistrictScene extends Phaser.Scene {
   buildingHash = "";
   viewShard: "campus" | "avenue" = "campus";
   roofLabels: Phaser.GameObjects.Image[] = [];
+  km0Label?: Phaser.GameObjects.Image;
   mapRt?: Phaser.GameObjects.RenderTexture;
   selRect?: Phaser.GameObjects.Rectangle;
   night?: Phaser.GameObjects.Rectangle;
@@ -76,6 +78,7 @@ export class DistrictScene extends Phaser.Scene {
     this.cameras.main.setBackgroundColor("#2F6B38");
     this.cameras.main.roundPixels = true;
     bindCamera(this);
+    this.cameras.main.setZoom(rememberedZoom());
     this.selRect = this.add.rectangle(0, 0, TILE_SIZE, TILE_SIZE).setStrokeStyle(1, 0xffffff).setDepth(8).setVisible(false);
     this.night = this.add
       .rectangle((MAP_W * TILE_SIZE) / 2, (MAP_H * TILE_SIZE) / 2, MAP_W * TILE_SIZE, MAP_H * TILE_SIZE, 0x081018, 0)
@@ -201,6 +204,10 @@ export class DistrictScene extends Phaser.Scene {
         this.grid = buildCollisionGrid(snap.buildings, snap.stations);
       }
       this.buildingHash = h;
+      this.km0Label?.destroy();
+      const km = shardKey === "avenue" ? AVENUE_KM0 : FOUNTAIN;
+      pixelTextTexture(this, "km0-lbl", "KM 0");
+      this.km0Label = this.add.image(km.x * TILE_SIZE + 8, km.y * TILE_SIZE + 22, "km0-lbl").setOrigin(0.5, 0).setDepth(3);
     }
     if (shardKey === "campus") this.paintHeat(snap);
     const visible = snap.agents.filter((a) => (a.shard ?? "campus") === this.viewShard || a.sprite === "visitor");

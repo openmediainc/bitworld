@@ -63,5 +63,10 @@ describe("avenue shard", () => {
     expect(card?.href).toContain("bitgrid");
     world.dropPostcard(v.id);
     expect(world.tasks.some((t) => t.title === "Campus postcard")).toBe(true);
+    const labor = world.laborBoard();
+    expect(labor.disclaimer.toLowerCase()).toContain("not endorsement");
+    expect(Array.isArray(labor.rows)).toBe(true);
+    world.fileReport("spam on plaza");
+    expect(world.events.some((e) => e.data?.report && String(e.text).includes("spam"))).toBe(true);
   });
 });

@@ -2,7 +2,7 @@ import { AVENUE_KM0, FOUNTAIN, RENDER_ZOOM, TILE_SIZE } from "@district/shared";
 
 export function bindCamera(scene: Phaser.Scene): void {
   const cam = scene.cameras.main;
-  cam.setZoom(RENDER_ZOOM);
+  cam.setZoom(rememberedZoom());
   cam.roundPixels = true;
   cam.centerOn((FOUNTAIN.x + 1) * TILE_SIZE, (FOUNTAIN.y + 1) * TILE_SIZE);
   scene.input.on("pointermove", (p: Phaser.Input.Pointer) => {
@@ -14,7 +14,22 @@ export function bindCamera(scene: Phaser.Scene): void {
   scene.input.on("wheel", (_p: unknown, _g: unknown, _dx: number, dy: number) => {
     const z = Phaser.Math.Clamp(cam.zoom - Math.sign(dy) * 0.25, 2, 5);
     cam.setZoom(z);
+    try {
+      localStorage.setItem("district.zoom", String(z));
+    } catch {
+      /* ignore */
+    }
   });
+}
+
+export function rememberedZoom(): number {
+  try {
+    const z = Number(localStorage.getItem("district.zoom"));
+    if (Number.isFinite(z) && z >= 2 && z <= 5) return z;
+  } catch {
+    /* ignore */
+  }
+  return RENDER_ZOOM;
 }
 
 export function centerFountain(scene: Phaser.Scene): void {

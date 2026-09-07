@@ -279,6 +279,7 @@ export const visitorMoveBodySchema = z.object({
   y: z.number().int(),
 });
 export const visitorSayBodySchema = z.object({ text: z.string().min(1).max(60) });
+export const reportBodySchema = z.object({ text: z.string().min(1).max(280) });
 export const lookQuerySchema = z.object({
   x: z.coerce.number().int(),
   y: z.coerce.number().int(),
