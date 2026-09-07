@@ -14,12 +14,12 @@ const child = spawn("npx", ["tsx", entry], {
   stdio: ["pipe", "pipe", "inherit"],
   env: {
     ...process.env,
-    HUB_URL: "http://127.0.0.1:4242",
-    AGENT_NAME: process.env.AGENT_NAME ?? "Claude",
-    AGENT_ROLE: process.env.AGENT_ROLE ?? "Coder",
-    AGENT_SPRITE: process.env.AGENT_SPRITE ?? "yuki",
-    ORG_ID: "org_acme",
-    AGENT_ID: process.env.AGENT_ID ?? "mcpclaude1",
+    HUB_URL: process.env.HUB_URL ?? "http://127.0.0.1:4242",
+    AGENT_NAME: process.env.AGENT_NAME ?? "Hermes",
+    AGENT_ROLE: process.env.AGENT_ROLE ?? "Chief of Staff",
+    AGENT_SPRITE: process.env.AGENT_SPRITE ?? "moss",
+    ORG_ID: process.env.ORG_ID ?? "org_acme",
+    AGENT_ID: process.env.AGENT_ID ?? "hermes_cos",
   },
 });
 
@@ -84,7 +84,7 @@ try {
   console.log("MCP tools", names.length, names.join(", "));
   const spawnRes = await rpc("tools/call", {
     name: "spawn",
-    arguments: { name: "Claude", role: "Coder", sprite: "yuki" },
+    arguments: { name: process.env.AGENT_NAME ?? "Hermes", role: process.env.AGENT_ROLE ?? "Chief of Staff", sprite: process.env.AGENT_SPRITE ?? "moss" },
   });
   console.log("spawn", textOf(spawnRes));
   const look = await rpc("tools/call", { name: "look_around", arguments: { radius: 8 } });

@@ -8,7 +8,6 @@ import { EventLog } from "./ui/EventLog";
 import { Inspector } from "./ui/Inspector";
 import { TaskComposer } from "./ui/TaskComposer";
 import { connectWs, hubHttp, postJson, type ConnState, type WsApi } from "./net/ws";
-import { startSimulator, stopSimulator } from "./mock/simulator";
 import { SearchPalette } from "./ui/SearchPalette";
 import { Tutorial } from "./ui/Tutorial";
 
@@ -37,7 +36,6 @@ export function App() {
   const [composer, setComposer] = useState(false);
   const [help, setHelp] = useState(false);
   const [askWait, setAskWait] = useState<string | null>(null);
-  const [simOn, setSimOn] = useState(() => localStorage.getItem("district.sim") !== "off");
   const [follow, setFollow] = useState(false);
   const [apiKeyRequired, setApiKeyRequired] = useState(false);
   const [selectedBuilding, setSelectedBuilding] = useState<string | null>(null);
@@ -238,7 +236,6 @@ export function App() {
         visits={snap.presence?.visits ?? 0}
         ticker={ticker}
         conn={conn}
-        simOn={simOn}
         following={follow}
         onSearch={() => setSearchOpen(true)}
         onPostcard={() => {
@@ -254,12 +251,6 @@ export function App() {
           sceneRef.current?.setViewShard(s);
           const id = visitorId.current;
           if (id) void postJson(`/api/agents/${id}/shard`, { shard: s }).catch(() => undefined);
-        }}
-        onSim={() => {
-          const next = !simOn;
-          setSimOn(next);
-          localStorage.setItem("district.sim", next ? "on" : "off");
-          void (next ? startSimulator() : stopSimulator());
         }}
         onFollow={() => {
           const id = selectedAgent;
@@ -405,7 +396,7 @@ export function App() {
         >
           <strong>Campus rules</strong>
           <p className="empty">
-            Connected agents only move on real events. SIM is labeled. Plots are membership, not for sale. Paid pixels
+            Connected agents only move on real events. Plots are membership, not for sale. Paid pixels
             live on BitGrid. Ranking is not endorsement. Being connected does not exempt you from campus rules.
           </p>
           <p className="meta">

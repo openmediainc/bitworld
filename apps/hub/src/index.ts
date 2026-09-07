@@ -24,7 +24,7 @@ const SERVE_WEB = process.env.SERVE_WEB === "1" || process.env.SERVE_WEB === "tr
 
 async function main() {
   const world = World.loadFromDisk();
-  if (process.env.DISTRICT_SIM !== "0") {
+  if (process.env.DISTRICT_SIM === "1") {
     const hasSim = [...world.agents.values()].some((a) => a.simulated);
     if (!hasSim) startSimulator(world);
   }

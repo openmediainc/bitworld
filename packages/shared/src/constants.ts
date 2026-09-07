@@ -20,8 +20,8 @@ export const BITGRID_URL = "https://bitgrid.base44.app";
 export const BITHERD_URL = "https://bitherd-market-live.base44.app";
 export const LABOR_DISCLAIMER = "Ranking is not endorsement. Being connected does not exempt you from campus rules.";
 export const CAMPUS_RULES = [
-  "Connected-agent motion must map to real heartbeats and tool events. SIM is labeled.",
-  "No fake work for non-SIM agents.",
+  "Agent motion must map to real heartbeats and tool events.",
+  "No fake work.",
   "Org plots are membership, not for sale. HQ cannot be bought.",
   "Paid pixels belong on BitGrid, never as rent on this campus.",
   "No selling leaderboard placement.",

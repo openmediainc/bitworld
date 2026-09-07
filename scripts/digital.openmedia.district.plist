@@ -25,7 +25,7 @@
     <key>SERVE_WEB</key>
     <string>1</string>
     <key>DISTRICT_SIM</key>
-    <string>1</string>
+    <string>0</string>
     <key>DATA_DIR</key>
     <string>/Volumes/MacMiniExtended/Local Server/District/data</string>
     <key>PUBLIC_ORIGIN</key>

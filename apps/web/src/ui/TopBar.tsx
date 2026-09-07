@@ -10,9 +10,7 @@ export function TopBar(props: {
   visits: number;
   ticker?: WorldEvent | null;
   conn: ConnState;
-  simOn: boolean;
   following: boolean;
-  onSim: () => void;
   onFollow: () => void;
   onHelp: () => void;
   onSearch: () => void;
@@ -51,7 +49,6 @@ export function TopBar(props: {
       <button onClick={props.onSearch}>Search</button>
       <button onClick={props.onPostcard}>Postcard</button>
       <button onClick={props.onRules}>Rules</button>
-      <button onClick={props.onSim}>Simulator {props.simOn ? "ON" : "OFF"}</button>
       <button onClick={props.onFollow}>{props.following ? "Unfollow" : "Follow"}</button>
       <button onClick={props.onHelp}>Help</button>
     </div>

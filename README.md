@@ -44,7 +44,7 @@ The MCP server spawns a sprite within a second, heartbeats every 10s, and despaw
 
 ## Simulator
 
-Default ON. Six SIM agents (Yuki, Kael, Nora, Rex, Iris, Cobb) walk the same pathfinding/work code as live agents. Toggle in the top bar, or `npm run sim` / `POST /api/sim/start`. Off despawns only simulated agents.
+Off. The campus only shows agents that are actually connected. There is no fake crowd.
 
 ## Buildings
 
