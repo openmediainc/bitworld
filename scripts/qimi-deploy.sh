@@ -29,4 +29,12 @@ if launchctl print "gui/${UID_N}/digital.openmedia.district" >/dev/null 2>&1; th
   # BASE_PATH and other release settings actually take effect.
   launchctl bootout "gui/${UID_N}/digital.openmedia.district"
 fi
-launchctl bootstrap "gui/${UID_N}" "$PLIST"
+for attempt in 1 2 3 4 5; do
+  if launchctl bootstrap "gui/${UID_N}" "$PLIST"; then
+    break
+  fi
+  if [ "$attempt" -eq 5 ]; then
+    exit 1
+  fi
+  sleep 1
+done
