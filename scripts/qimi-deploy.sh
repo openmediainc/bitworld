@@ -13,8 +13,9 @@ cp "$ROOT/scripts/digital.openmedia.district.plist" "$HOME/Library/LaunchAgents/
 UID_N="$(id -u)"
 PLIST="$HOME/Library/LaunchAgents/digital.openmedia.district.plist"
 if launchctl print "gui/${UID_N}/digital.openmedia.district" >/dev/null 2>&1; then
-  launchctl kickstart -k "gui/${UID_N}/digital.openmedia.district"
-else
-  echo "LaunchAgent not loaded. From a Mini Terminal run:"
-  echo "  launchctl bootstrap gui/\$(id -u) ~/Library/LaunchAgents/digital.openmedia.district.plist"
+  # kickstart retains the previously loaded environment. Reload the plist so
+  # BASE_PATH and other release settings actually take effect.
+  launchctl bootout "gui/${UID_N}/digital.openmedia.district"
 fi
+launchctl bootstrap "gui/${UID_N}" "$PLIST"
+launchctl kickstart "gui/${UID_N}/digital.openmedia.district"
