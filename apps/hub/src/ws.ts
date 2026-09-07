@@ -37,7 +37,15 @@ export function registerWs(app: FastifyInstance, world: World, clients: Set<(msg
       if (msg.type === "hello") {
         role = msg.role;
         if (role === "visitor") {
-          visitorId = `visitor_${nanoid(6)}`;
+          const requestedId =
+            msg.visitorId && /^visitor_[a-zA-Z0-9-]{6,50}$/.test(msg.visitorId)
+              ? msg.visitorId
+              : null;
+          const requestedAgent = requestedId ? world.agents.get(requestedId) : undefined;
+          visitorId =
+            requestedId && (!requestedAgent || requestedAgent.sprite === "visitor")
+              ? requestedId
+              : `visitor_${nanoid(10)}`;
           world.upsertAgent({
             id: visitorId,
             name: msg.name?.slice(0, 24) || "Visitor",

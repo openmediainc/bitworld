@@ -32,6 +32,7 @@ export function connectWs(handlers: {
   onSession?: (visitorId?: string) => void;
   onStatus: (s: ConnState) => void;
   name?: string;
+  visitorId?: string;
 }): WsApi {
   let ws: WebSocket | null = null;
   let attempt = 0;
@@ -45,7 +46,14 @@ export function connectWs(handlers: {
     ws.onopen = () => {
       attempt = 0;
       handlers.onStatus("green");
-      ws?.send(JSON.stringify({ type: "hello", role: "visitor", name: handlers.name ?? "Visitor" }));
+      ws?.send(
+        JSON.stringify({
+          type: "hello",
+          role: "visitor",
+          name: handlers.name ?? "Visitor",
+          visitorId: handlers.visitorId,
+        }),
+      );
     };
     ws.onmessage = (ev) => {
       const msg = JSON.parse(String(ev.data)) as ServerMessage;

@@ -196,7 +196,7 @@ export type Snapshot = {
   avenue?: AvenueState;
 };
 
-export type WsHello = { type: "hello"; role: "viewer" | "visitor"; name?: string };
+export type WsHello = { type: "hello"; role: "viewer" | "visitor"; name?: string; visitorId?: string };
 export type WsMove = { type: "move"; x: number; y: number };
 export type WsSay = { type: "say"; text: string };
 export type WsPing = { type: "ping" };

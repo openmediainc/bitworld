@@ -32,6 +32,14 @@ function visitorName(): string {
   return generated;
 }
 
+function visitorIdentity(): string {
+  const saved = localStorage.getItem("district.visitorId");
+  if (saved) return saved;
+  const generated = `visitor_${crypto.randomUUID()}`;
+  localStorage.setItem("district.visitorId", generated);
+  return generated;
+}
+
 export function App() {
   const hostRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<DistrictScene | null>(null);
@@ -60,6 +68,7 @@ export function App() {
   const [selectedPlot, setSelectedPlot] = useState<string | null>(null);
   const visitorId = useRef<string | undefined>(undefined);
   const name = useRef(visitorName());
+  const stableVisitorId = useRef(visitorIdentity());
   const [visitorSessionId, setVisitorSessionId] = useState<string | undefined>(undefined);
 
   useEffect(() => {
@@ -195,6 +204,7 @@ export function App() {
     const api = connectWs({
       onStatus: setConn,
       name: name.current,
+      visitorId: stableVisitorId.current,
       onSession: (id) => {
         visitorId.current = id;
         setVisitorSessionId(id);
